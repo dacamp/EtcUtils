@@ -42,7 +42,7 @@ serach for stdio_file */
 #define RFILE_PATH(x) (RFILE(x)->fptr)->pathv
 #else
 #define RFILE_FPTR(x) (RFILE(x)->fptr)->f
-#define RFILE_PATH(x) safe_setup_str( (RFILE(x)->fptr)->path )
+#define RFILE_PATH(x) ( safe_setup_str( (RFILE(x)->fptr)->path ) )
 #endif
 
 #ifndef UIDT2NUM
@@ -327,7 +327,7 @@ etcutils_sgetspent(VALUE self, VALUE nam)
   SafeStringValue(nam);
   if ( !(shadow = sgetspent(StringValuePtr(nam))) )
     rb_raise(rb_eArgError,
-	     "can't parse %s into Struct::Shadow", StringValuePtr(nam));
+	     "can't parse %s into EtcUtils::Shadow", StringValuePtr(nam));
 
   return setup_shadow(shadow);
 }
@@ -340,7 +340,7 @@ etcutils_sgetsgent(VALUE self, VALUE nam)
   SafeStringValue(nam);
   if ( !(gshadow = sgetsgent(StringValuePtr(nam))) )
     rb_raise(rb_eArgError,
-	     "can't parse %s into Struct::GShadow", StringValuePtr(nam));
+	     "can't parse %s into EtcUtils::GShadow", StringValuePtr(nam));
 
   return setup_gshadow(gshadow);
 }
@@ -394,69 +394,111 @@ etcutils_fgetsgent(VALUE self, VALUE io)
 }
 
 static VALUE
-etcutils_getpwnam(VALUE self, VALUE nam)
+etcutils_getpwXXX(VALUE self, VALUE v)
 {
-  struct passwd *pwd;
+  struct passwd *strt;
   etcutils_setpwent(self);
-  SafeStringValue(nam);
 
-  if ( !(pwd = getpwnam(StringValuePtr(nam))) )
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(nam), PASSWD);
-  return setup_passwd(pwd);
+  if (TYPE(v) == T_FIXNUM)
+    strt = getpwuid(NUM2UIDT(v));
+  else {
+    SafeStringValue(v);
+    strt = getpwnam(StringValuePtr(v));
+  }
+  
+  if (!strt)
+    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), PASSWD);
+
+  return setup_passwd(strt);
 }
 
 static VALUE
-etcutils_getspnam(VALUE self, VALUE nam)
+etcutils_getspXXX(VALUE self, VALUE v)
 {
-  struct spwd *shadow;
+  struct spwd *strt;
   etcutils_setspent(self);
-  SafeStringValue(nam);
 
-  if ( !(shadow = getspnam(StringValuePtr(nam))) )
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(nam), SHADOW);
-  return setup_shadow(shadow);
+  if (TYPE(v) == T_FIXNUM) {
+    struct passwd *s;
+    if ( (s = getpwuid(NUM2UIDT(v))) )
+      v = rb_str_new2(s->pw_name);
+    else
+      return Qnil;
+  }
+
+  SafeStringValue(v);
+  strt = getspnam(StringValuePtr(v));
+  
+  if (!strt)
+    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), SHADOW);
+
+  return setup_shadow(strt);
 }
 
 static VALUE
-etcutils_getsgnam(VALUE self, VALUE nam)
+etcutils_getsgXXX(VALUE self, VALUE v)
 {
-  struct sgrp *sgroup;
+  struct sgrp *strt;
   etcutils_setsgent(self);
-  SafeStringValue(nam);
 
-  if ( !(sgroup = getsgnam(StringValuePtr(nam))) )
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(nam), GSHADOW);
-  return setup_gshadow(sgroup);
+  if (TYPE(v) == T_FIXNUM) {
+    struct group *s;
+    if ( (s = getgrgid(NUM2UIDT(v))) )
+      v = safe_setup_str(s->gr_name);
+  }
+
+  SafeStringValue(v);
+  strt = getsgnam(StringValuePtr(v));
+  
+  if (!strt)
+    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), GSHADOW);
+
+  return setup_gshadow(strt);
 }
 
 static VALUE
-etcutils_getgrnam(VALUE self, VALUE nam)
+etcutils_getgrXXX(VALUE self, VALUE v)
 {
-  struct group *grp;
+  struct group *strt;
   etcutils_setgrent(self);
-  SafeStringValue(nam);
 
-  if ( !(grp = getgrnam(StringValuePtr(nam))) )
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(nam), GROUP);
-  return setup_group(grp);
+  if (TYPE(v) == T_FIXNUM)
+    strt = getgrgid(NUM2UIDT(v));
+  else {
+    SafeStringValue(v);
+    strt = getgrnam(StringValuePtr(v));
+  }
+  
+  if (!strt)
+    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), GROUP);
+  return setup_group(strt);
 }
 
 static VALUE
 pwd_putpwent(VALUE self, VALUE io)
 {
-  struct passwd pwd;
+  struct passwd pwd, *tmp_str;
   VALUE val[RSTRUCT_LEN(self)];
-  int i;
+  VALUE path = RFILE_PATH(io);
+  long i;
 
   for (i=0; i<RSTRUCT_LEN(self); i++)
     val[i] = RSTRUCT_PTR(self)[i];
 
-  SafeStringValue(val[0]);
   SafeStringValue(val[1]);
   SafeStringValue(val[4]);
   SafeStringValue(val[5]);
   SafeStringValue(val[6]);
   ensure_file(io);
+
+  rewind(RFILE_FPTR(io));
+  i = 0;
+  while ( (tmp_str = fgetpwent(RFILE_FPTR(io))) ) {
+    i++;
+    if ( !strcmp(tmp_str->pw_name,StringValuePtr(val[0])) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       tmp_str->pw_name,  StringValuePtr(path), i );
+  }
 
   pwd.pw_name     = StringValueCStr(val[0]);
   pwd.pw_passwd   = StringValueCStr(val[1]);
@@ -467,7 +509,7 @@ pwd_putpwent(VALUE self, VALUE io)
   pwd.pw_shell    = StringValueCStr(val[6]);
 
   if ( (putpwent(&pwd, RFILE_FPTR(io))) )
-    etcutils_errno(RFILE_PATH(io));
+    etcutils_errno(path);
 
   return Qtrue;
 }
@@ -482,9 +524,10 @@ etc_putpwent(VALUE klass, VALUE entry, VALUE io)
 static VALUE
 spwd_putspent(VALUE self, VALUE io)
 {
-  struct spwd spasswd;
+  struct spwd spasswd, *tmp_str;
   VALUE val[RSTRUCT_LEN(self)];
-  int i;
+  VALUE path = RFILE_PATH(io);
+  long i;
 
   for (i=0; i<RSTRUCT_LEN(self); i++)
     val[i] = RSTRUCT_PTR(self)[i];
@@ -492,6 +535,15 @@ spwd_putspent(VALUE self, VALUE io)
   SafeStringValue(val[0]);
   SafeStringValue(val[1]);
   ensure_file(io);
+
+  rewind(RFILE_FPTR(io));
+  i = 0;
+  while ( (tmp_str = fgetspent(RFILE_FPTR(io))) ) {
+    i++;
+    if ( !strcmp(tmp_str->sp_namp,StringValuePtr(val[0])) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       tmp_str->sp_namp,  StringValuePtr(path), i );
+  }
 
   spasswd.sp_namp   = StringValueCStr(val[0]);
   spasswd.sp_pwdp   = StringValueCStr(val[1]);
@@ -504,7 +556,7 @@ spwd_putspent(VALUE self, VALUE io)
   spasswd.sp_flag   = FIX2INT(val[8]);
 
   if ( (putspent(&spasswd, RFILE_FPTR(io))) )
-    etcutils_errno(RFILE_PATH(io));
+    etcutils_errno(path);
 
   return Qtrue;
 }
@@ -518,8 +570,9 @@ etcutils_putspent(VALUE klass, VALUE entry, VALUE io)
 static VALUE
 grp_putgrent(VALUE self, VALUE io)
 {
-  struct group grp;
+  struct group grp, *tmp_str;
   VALUE val[RSTRUCT_LEN(self)];
+  VALUE path = RFILE_PATH(io);
   long i;
 
   for (i=0; i<RSTRUCT_LEN(self); i++)
@@ -529,6 +582,15 @@ grp_putgrent(VALUE self, VALUE io)
   SafeStringValue(val[1]);
   Check_Type(val[3],T_ARRAY);
   ensure_file(io);
+
+  rewind(RFILE_FPTR(io));
+  i = 0;
+  while ( (tmp_str = fgetgrent(RFILE_FPTR(io))) ) {
+    i++;
+    if ( !strcmp(tmp_str->gr_name,StringValuePtr(val[0])) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       tmp_str->gr_name,  StringValuePtr(path), i );
+  }
 
   grp.gr_name   = StringValueCStr(val[0]);
   grp.gr_passwd = StringValueCStr(val[1]);
@@ -553,8 +615,9 @@ etc_putgrent(VALUE klass, VALUE entry, VALUE io)
 static VALUE
 sgrp_putsgent(VALUE self, VALUE io)
 {
-  struct sgrp sgroup;
+  struct sgrp sgroup, *tmp_str;
   VALUE val[RSTRUCT_LEN(self)];
+  VALUE path = RFILE_PATH(io);
   long i;
 
   for (i=0; i<RSTRUCT_LEN(self); i++)
@@ -566,6 +629,15 @@ sgrp_putsgent(VALUE self, VALUE io)
   Check_Type(val[3],T_ARRAY);
   ensure_file(io);
 
+  rewind(RFILE_FPTR(io));
+  i = 0;
+  while ( (tmp_str = fgetsgent(RFILE_FPTR(io))) ) {
+    i++;
+    if ( !strcmp(SGRP_NAME(tmp_str),StringValuePtr(val[0])) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       SGRP_NAME(tmp_str),  StringValuePtr(path), i );
+  }
+
 #ifdef HAVE_ST_SG_NAMP
   sgroup.sg_namp = StringValueCStr(val[0]);
 #endif
@@ -574,10 +646,9 @@ sgrp_putsgent(VALUE self, VALUE io)
 #endif
 
   sgroup.sg_passwd = StringValueCStr(val[1]);
-
   // char** members start here
-  sgroup.sg_adm = setup_char_members(val[2]);
-  sgroup.sg_mem = setup_char_members(val[3]);
+  sgroup.sg_adm    = setup_char_members(val[2]);
+  sgroup.sg_mem    = setup_char_members(val[3]);
 
   if ( putsgent(&sgroup,RFILE_FPTR(io)) )
     etcutils_errno(RFILE_PATH(io));
@@ -800,33 +871,67 @@ etcutils_getsgent(VALUE self)
 static VALUE
 strt_to_s(VALUE self)
 {
-  VALUE ary = rb_ary_new();
+  VALUE v, ary = rb_ary_new();
   long i;
 
   // g.map{|x| x.kind_of?(Array) ? x.join(',') : x.to_s }.join(':')
-  for (i=0; i<RSTRUCT_LEN(self); i++)
-    if (TYPE(RSTRUCT_PTR(self)[i]) == T_ARRAY) {
-      rb_ary_push(ary, rb_ary_join( (RSTRUCT_PTR(self)[i]), safe_setup_str(",") ) );
-    } else if ( (TYPE(RSTRUCT_PTR(self)[i]) == T_STRING) || (TYPE(RSTRUCT_PTR(self)[i]) == T_FIXNUM) )
-      rb_ary_push(ary,RSTRUCT_PTR(self)[i]);
-    else
-      Check_Type( (RSTRUCT_PTR(self)[i]), T_STRING); // Or Array, but this is the easiest test.
+  for (i=0; i<RSTRUCT_LEN(self); i++) {
+    v = RSTRUCT_PTR(self)[i];
+    if (TYPE(v) == T_ARRAY)
+      rb_ary_push(ary, rb_ary_join( (v), safe_setup_str(",") ));
+    else if (TYPE(v) == T_STRING)
+      rb_ary_push(ary,v);
+    else if (TYPE(v) == T_FIXNUM) {
+      if (FIX2INT(v) < 0 )
+	v = safe_setup_str("");
+      rb_ary_push(ary,v);
+    } else
+      Check_Type(v, T_STRING); // Or Array, but testing one is easier
+  }
 
   return rb_ary_join(ary, safe_setup_str(":"));
 }
 
+static VALUE
+etcutils_setXXent(VALUE self)
+{
+  etcutils_setpwent(self);
+  etcutils_setgrent(self);
+  etcutils_setspent(self);
+  etcutils_setsgent(self);
+  return Qnil;
+}
+
+static VALUE
+etcutils_endXXent(VALUE self)
+{
+  etcutils_endpwent(self);
+  etcutils_endgrent(self);
+  etcutils_endspent(self);
+  etcutils_endsgent(self);
+  return Qnil;
+}
 
 void Init_etcutils()
 {
   VALUE mEtcUtils = rb_define_module("EtcUtils");
   rb_extend_object(mEtcUtils, rb_mEnumerable);
 
+  // EtcUtils Constants
+  rb_define_global_const("PASSWD", safe_setup_str(PASSWD));
+  rb_define_global_const("SHADOW", safe_setup_str(SHADOW));
+  rb_define_global_const("GROUP", safe_setup_str(GROUP));
+  rb_define_global_const("GSHADOW", safe_setup_str(GSHADOW));
+
+  // EtcUtils Functions
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,1);
   rb_define_module_function(mEtcUtils,"next_gid",next_gid,1);
+  rb_define_module_function(mEtcUtils,"setXXent", etcutils_setXXent,0);
+  rb_define_module_function(mEtcUtils,"endXXent", etcutils_endXXent,0);
 
   // Shadow Functions
   rb_define_module_function(mEtcUtils,"getspent",etcutils_getspent,0);
-  rb_define_module_function(mEtcUtils,"getspnam",etcutils_getspnam,1);
+  rb_define_module_function(mEtcUtils,"find_spwd",etcutils_getspXXX,1);
   rb_define_module_function(mEtcUtils,"setspent",etcutils_setspent,0);
   rb_define_module_function(mEtcUtils,"endspent",etcutils_endspent,0);
   rb_define_module_function(mEtcUtils,"sgetspent",etcutils_sgetspent,1);
@@ -835,7 +940,8 @@ void Init_etcutils()
 
   // Password Functions
   rb_define_module_function(mEtcUtils,"getpwent",etcutils_getpwent,0);
-  rb_define_module_function(mEtcUtils,"getpwnam",etcutils_getpwnam,1);
+  rb_define_module_function(mEtcUtils,"find_pwd",etcutils_getpwXXX,1);
+  rb_define_module_function(mEtcUtils,"getpwnam",etcutils_getpwXXX,1); // Backward compatibility
   rb_define_module_function(mEtcUtils,"setpwent",etcutils_setpwent,0);
   rb_define_module_function(mEtcUtils,"endpwent",etcutils_endpwent,0);
   rb_define_module_function(mEtcUtils,"fgetpwent",etc_fgetpwent,1);
@@ -843,7 +949,7 @@ void Init_etcutils()
 
   // GShadow Functions
   rb_define_module_function(mEtcUtils,"getsgent",etcutils_getsgent,0);
-  rb_define_module_function(mEtcUtils,"getsgnam",etcutils_getsgnam,1);
+  rb_define_module_function(mEtcUtils,"find_sgrp",etcutils_getsgXXX,1);
   rb_define_module_function(mEtcUtils,"setsgent",etcutils_setsgent,0);
   rb_define_module_function(mEtcUtils,"endsgent",etcutils_endsgent,0);
   rb_define_module_function(mEtcUtils,"sgetsgent",etcutils_sgetsgent,1);
@@ -852,7 +958,8 @@ void Init_etcutils()
 
   // Group Functions
   rb_define_module_function(mEtcUtils,"getgrent",etcutils_getgrent,0);
-  rb_define_module_function(mEtcUtils,"getgrnam",etcutils_getgrnam,1);
+  rb_define_module_function(mEtcUtils,"find_grp",etcutils_getgrXXX,1);
+  rb_define_module_function(mEtcUtils,"getgrnam",etcutils_getgrXXX,1);
   rb_define_module_function(mEtcUtils,"setgrent",etcutils_setgrent,0);
   rb_define_module_function(mEtcUtils,"endgrent",etcutils_endgrent,0);
   rb_define_module_function(mEtcUtils,"fgetgrent",etc_fgetgrent,1);
@@ -896,24 +1003,13 @@ void Init_etcutils()
    *     in the gecos field, but this is system-dependent.
    * shell::
    *    contains the path to the login shell of the user as a String.
-   *
-   * === The following members below are optional, and must be compiled with special flags:
-   *
-   * change::
-   *     password change time(integer) must be compiled with +HAVE_STRUCT_PASSWD_PW_CHANGE+
-   * quota::
-   *     quota value(integer) must be compiled with +HAVE_STRUCT_PASSWD_PW_QUOTA+
-   * age::
-   *     password age(integer) must be compiled with +HAVE_STRUCT_PASSWD_PW_AGE+
-   * class::
-   *     user access class(string) must be compiled with +HAVE_STRUCT_PASSWD_PW_CLASS+
-   * comment::
-   *     comment(string) must be compiled with +HAVE_STRUCT_PASSWD_PW_COMMENT+
-   * expire::
-   *    account expiration time(integer) must be compiled with +HAVE_STRUCT_PASSWD_PW_EXPIRE+
    */
   rb_define_const(mEtcUtils,"Passwd",cPasswd);
   rb_set_class_path(cPasswd, mEtcUtils, "Passwd");
+  rb_define_singleton_method(cPasswd,"get",etcutils_getpwent,0);
+  rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
+  rb_define_singleton_method(cPasswd,"set",etcutils_setpwent,0);
+  rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
   rb_define_method(cPasswd, "fputs", pwd_putpwent, 1);
   rb_define_method(cPasswd, "to_s", strt_to_s,0);
 
@@ -932,6 +1028,10 @@ void Init_etcutils()
   rb_define_const(mEtcUtils,"Shadow",cShadow);
   rb_set_class_path(cShadow, mEtcUtils, "Shadow");
   rb_define_const(rb_cStruct, "Shadow", cShadow); /* deprecated name */
+  rb_define_singleton_method(cShadow,"get",etcutils_getspent,0);
+  rb_define_singleton_method(cShadow,"find",etcutils_getspXXX,1);
+  rb_define_singleton_method(cShadow,"set",etcutils_setspent,0);
+  rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
   rb_define_method(cShadow, "fputs", spwd_putspent, 1);
   rb_define_method(cShadow, "to_s", strt_to_s,0);
 
@@ -943,8 +1043,6 @@ void Init_etcutils()
 			    NULL);
   /* Define-const: Group
    *
-   * Group is a Struct that is only available when compiled with +HAVE_GETGRENT+.
-   *
    * The struct contains the following members:
    *
    * name::
@@ -954,16 +1052,18 @@ void Init_etcutils()
    *    returned if password access to the group is not available; an empty
    *    string is returned if no password is needed to obtain membership of
    *    the group.
-   *
-   *    Must be compiled with +HAVE_STRUCT_GROUP_GR_PASSWD+.
    * gid::
    *    contains the group's numeric ID as an integer.
    * mem::
    *    is an Array of Strings containing the short login names of the
    *    members of the group.
    */
-  rb_define_const(mEtcUtils,"Group",cGroup);
+  rb_define_class_under(mEtcUtils,"Group",cGroup);
   rb_set_class_path(cGroup, mEtcUtils, "Group");
+  rb_define_singleton_method(cGroup,"get",etcutils_getgrent,0);
+  rb_define_singleton_method(cGroup,"find",etcutils_getgrXXX,1);
+  rb_define_singleton_method(cGroup,"set",etcutils_setgrent,0);
+  rb_define_singleton_method(cGroup,"end",etcutils_endgrent,0);
   rb_define_method(cGroup, "fputs", grp_putgrent, 1);
   rb_define_method(cGroup, "to_s", strt_to_s,0);
 
@@ -977,9 +1077,10 @@ void Init_etcutils()
   rb_define_const(mEtcUtils, "GShadow",cGShadow);
   rb_set_class_path(cGShadow, mEtcUtils, "GShadow");
   rb_define_const(rb_cStruct, "GShadow", cGShadow); /* deprecated name */
+  rb_define_singleton_method(cGShadow,"get",etcutils_getsgent,0);
+  rb_define_singleton_method(cGShadow,"find",etcutils_getsgXXX,1);
+  rb_define_singleton_method(cGShadow,"set",etcutils_setsgent,0);
+  rb_define_singleton_method(cGShadow,"end",etcutils_endsgent,0);
   rb_define_method(cGShadow, "fputs", sgrp_putsgent, 1);
   rb_define_method(cGShadow, "to_s", strt_to_s,0);
-
-  rb_define_global_const("GSHADOW", safe_setup_str(GSHADOW));
-  rb_define_global_const("SHADOW", safe_setup_str(SHADOW));
 }

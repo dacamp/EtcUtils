@@ -1,6 +1,9 @@
-require 'etcutils_test_helper'
+require 'locksmith_test_helper'
 
 class EtcUtilsTest < Test::Unit::TestCase
+  include EtcUtils
+
+  FIND_CMDS = [:find_pwd, :find_spwd, :find_grp, :find_sgrp]
 
   def test_etc_locking
     assert_block "Couldn't run a block inside of lock()" do
@@ -14,26 +17,26 @@ class EtcUtilsTest < Test::Unit::TestCase
       begin
         lock { raise "foobar" }
       rescue
-        #
+        !locked?
       end
-      !locked?
     end
+  end
+
+  FIND_CMDS.each do |m|
+    define_method("test_#{m.to_s}_typeerr")  { assert_raise TypeError do; EtcUtils.send(m,{}); end }
+    define_method("test_#{m.to_s}_find_int") { assert EtcUtils.send(m, 0).name.eql? "root"  }
+    define_method("test_#{m.to_s}_find_str") { assert EtcUtils.send(m, 'root').name.eql? "root"  }
   end
 
   def test_etc_utils_sgetspent
-    assert sgetspent("root:!::0:::::").name.eql? "root"
-  end
-
-  def test_etc_utils_getspnam_args
-    assert_raise TypeError do
-      getspnam(1)
-    end
+    assert sgetspent(find_spwd('root').to_s).name.eql? "root"
+    assert sgetsgent(find_sgrp('root').to_s).name.eql? "root"
   end
 
   def test_etc_utils_fgetsgent_cp_tmp
     assert_nothing_raised do
       fh = File.open('/etc/gshadow', 'r')
-      File.open('/tmp/_gshadow', File::RDWR|File::CREAT, 0640) { |tf|
+      File.open('/tmp/_gshadow', File::RDWR|File::CREAT, 0600) { |tf|
         while ( g = fgetsgent(fh) )
           g.fputs(tf)
         end
