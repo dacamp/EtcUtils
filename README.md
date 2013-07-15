@@ -1,7 +1,7 @@
 etcutils
 ========
 
-Ruby C Extension for for Linux reads and writes to the /etc files.
+Ruby C Extension for Linux reads and writes to etc dbfiles.
 
 Tested and works on ruby 1.8.7, 1.9.3.
 
