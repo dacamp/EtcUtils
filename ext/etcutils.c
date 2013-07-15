@@ -22,76 +22,8 @@
 
 ************************************************/
 
-#include "ruby.h"
-#ifdef HAVE_RUBYIO_H
-#include "rubyio.h"
-#else
-#include "ruby/io.h"
-#endif
+#include "etcutils.h"
 
-static VALUE safe_setup_str(const char *str);
-
-#ifdef HAVE_RUBY_ENCODING_H
-#include "ruby/encoding.h"
-
-/* This is somewhat cheating since you *could* drop in an encoding
-header in pre-1.9 revs, but should handle all regular use-cases.  In
-the event that there actually is a overlap, change the extconf and
-serach for stdio_file */
-#define RFILE_FPTR(x) rb_io_stdio_file( RFILE(x)->fptr )
-#define RFILE_PATH(x) (RFILE(x)->fptr)->pathv
-#else
-#define RFILE_FPTR(x) (RFILE(x)->fptr)->f
-#define RFILE_PATH(x) ( safe_setup_str( (RFILE(x)->fptr)->path ) )
-#endif
-
-#ifndef UIDT2NUM
-#define UIDT2NUM(v) UINT2NUM(v)
-#endif
-#ifndef NUM2UIDT
-#define NUM2UIDT(v) NUM2UINT(v)
-#endif
-#ifndef GIDT2NUM
-#define GIDT2NUM(v) UINT2NUM(v)
-#endif
-#ifndef NUM2GIDT
-#define NUM2GIDT(v) NUM2UINT(v)
-#endif
-
-#ifdef HAVE_SHADOW_H
-#include <shadow.h>
-#endif
-#ifdef HAVE_PWD_H
-#include <pwd.h>
-#endif
-#ifdef HAVE_GSHADOW_H
-#include <gshadow.h>
-#endif
-#ifdef HAVE_GSHADOW__H
-#include <gshadow_.h>
-#endif
-#ifdef HAVE_GRP_H
-#include <grp.h>
-#endif
-
-#ifndef PASSWD
-#define PASSWD "/etc/passwd"
-#endif
-
-#ifndef GROUP
-#define GROUP "/etc/group"
-#endif
-
-#ifdef HAVE_ST_SG_NAMP
-#define SGRP_NAME(s) (s)->sg_namp
-#else
-#define SGRP_NAME(s) (s)->sg_name
-#endif
-
-static VALUE cShadow;
-static VALUE cGShadow;
-static VALUE cPasswd;
-static VALUE cGroup;
 
 /* Start of helper functions */
 static VALUE
@@ -171,18 +103,18 @@ setup_char_members(VALUE ary)
 }
 
 static VALUE
-safe_setup_str(const char *str)
+setup_safe_str(const char *str)
 {
   return rb_tainted_str_new2(str); // this already handles characters >= 0
 }
 
 static VALUE
-safe_setup_array(char **arr)
+setup_safe_array(char **arr)
 {
   VALUE mem = rb_ary_new();
 
   while (*arr)
-    rb_ary_push(mem, safe_setup_str(*arr++));
+    rb_ary_push(mem, setup_safe_str(*arr++));
   return mem;
 }
 
@@ -190,12 +122,12 @@ static VALUE
 setup_gshadow(struct sgrp *sgroup)
 {
   if (!sgroup) errno  || (errno = 61); // ENODATA
-  etcutils_errno( safe_setup_str ( "Error setting up GShadow instance." ) );
+  etcutils_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
   return rb_struct_new(cGShadow,
-		       safe_setup_str(SGRP_NAME(sgroup)),
-		       safe_setup_str(sgroup->sg_passwd),
-		       safe_setup_array(sgroup->sg_adm),
-		       safe_setup_array(sgroup->sg_mem),
+		       setup_safe_str(SGRP_NAME(sgroup)),
+		       setup_safe_str(sgroup->sg_passwd),
+		       setup_safe_array(sgroup->sg_adm),
+		       setup_safe_array(sgroup->sg_mem),
 		       NULL);
 }
 
@@ -203,10 +135,10 @@ static VALUE
 setup_shadow(struct spwd *shadow)
 {
   if (!shadow) errno  || (errno = 61); // ENODATA
-  etcutils_errno( safe_setup_str ( "Error setting up Shadow instance." ) );
+  etcutils_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
   return rb_struct_new(cShadow,
-		       safe_setup_str(shadow->sp_namp),
-		       safe_setup_str(shadow->sp_pwdp),
+		       setup_safe_str(shadow->sp_namp),
+		       setup_safe_str(shadow->sp_pwdp),
 		       INT2FIX(shadow->sp_lstchg),
 		       INT2FIX(shadow->sp_min),
 		       INT2FIX(shadow->sp_max),
@@ -221,12 +153,12 @@ static VALUE
 setup_group(struct group *grp)
 {
   if (!grp) errno  || (errno = 61); // ENODATA
-  etcutils_errno( safe_setup_str ( "Error setting up Group instance." ) );
+  etcutils_errno( setup_safe_str ( "Error setting up Group instance." ) );
   return rb_struct_new(cGroup,
-		       safe_setup_str(grp->gr_name),
-		       safe_setup_str(grp->gr_passwd),
+		       setup_safe_str(grp->gr_name),
+		       setup_safe_str(grp->gr_passwd),
 		       GIDT2NUM(grp->gr_gid),
-		       safe_setup_array(grp->gr_mem),
+		       setup_safe_array(grp->gr_mem),
 		       NULL);
 }
 
@@ -234,15 +166,15 @@ static VALUE
 setup_passwd(struct passwd *pwd)
 {
   if (!pwd) errno  || (errno = 61); // ENODATA
-  etcutils_errno( safe_setup_str ( "Error setting up Password instance." ) );
+  etcutils_errno( setup_safe_str ( "Error setting up Password instance." ) );
   return rb_struct_new(cPasswd,
-		       safe_setup_str(pwd->pw_name),
-		       safe_setup_str(pwd->pw_passwd),
+		       setup_safe_str(pwd->pw_name),
+		       setup_safe_str(pwd->pw_passwd),
 		       UIDT2NUM(pwd->pw_uid),
 		       GIDT2NUM(pwd->pw_gid),
-		       safe_setup_str(pwd->pw_gecos),
-		       safe_setup_str(pwd->pw_dir),
-		       safe_setup_str(pwd->pw_shell),
+		       setup_safe_str(pwd->pw_gecos),
+		       setup_safe_str(pwd->pw_dir),
+		       setup_safe_str(pwd->pw_shell),
 		       NULL);
 }
 /* End of helper functions */
@@ -444,7 +376,7 @@ etcutils_getsgXXX(VALUE self, VALUE v)
   if (TYPE(v) == T_FIXNUM) {
     struct group *s;
     if ( (s = getgrgid(NUM2UIDT(v))) )
-      v = safe_setup_str(s->gr_name);
+      v = setup_safe_str(s->gr_name);
   }
 
   SafeStringValue(v);
@@ -473,6 +405,11 @@ etcutils_getgrXXX(VALUE self, VALUE v)
     rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), GROUP);
   return setup_group(strt);
 }
+
+/**
+ * EtcUtils putXXent functions
+ *
+ */
 
 static VALUE
 pwd_putpwent(VALUE self, VALUE io)
@@ -698,9 +635,9 @@ etcutils_ulckpwdf(VALUE self)
 }
 
 static int in_lock = 0;
-static int shadow_block = 0;
+static int spwd_block = 0;
 static int pwd_block = 0;
-static int gshadow_block = 0;
+static int sgrp_block = 0;
 static int grp_block = 0;
 
 static VALUE
@@ -748,16 +685,16 @@ static VALUE
 shadow_ensure(void)
 {
   endspent();
-  shadow_block = (int)Qfalse;
+  spwd_block = (int)Qfalse;
   return Qnil;
 }
 
 static void
 each_shadow(void)
 {
-  if (shadow_block)
+  if (spwd_block)
     rb_raise(rb_eRuntimeError, "parallel shadow iteration");
-  shadow_block = (int)Qtrue;
+  spwd_block = (int)Qtrue;
   rb_ensure(shadow_iterate, 0, shadow_ensure, 0);
 }
 
@@ -829,7 +766,7 @@ each_group(void)
 {
   if (grp_block)
     rb_raise(rb_eRuntimeError, "parallel group iteration");
-  pwd_block = (int)Qtrue;
+  grp_block = (int)Qtrue;
   rb_ensure(grp_iterate, 0, grp_ensure, 0);
 }
 
@@ -860,12 +797,46 @@ etcutils_getspent(VALUE self)
 }
 
 static VALUE
+sgrp_iterate(void)
+{
+  struct sgrp *sgroup;
+
+  setsgent();
+  while ( (sgroup = getsgent()) ) {
+    rb_yield(setup_gshadow(sgroup));
+  }
+  return Qnil;
+}
+
+static VALUE
+sgrp_ensure(void)
+{
+  endsgent();
+  sgrp_block = (int)Qfalse;
+  return Qnil;
+}
+
+static void
+each_sgrp(void)
+{
+  if (sgrp_block)
+    rb_raise(rb_eRuntimeError, "parallel gshadow iteration");
+  sgrp_block = (int)Qtrue;
+  rb_ensure(sgrp_iterate, 0, sgrp_ensure, 0);
+}
+
+
+static VALUE
 etcutils_getsgent(VALUE self)
 {
   struct sgrp *sgroup;
-  if ( (sgroup = getsgent()) )
+
+  if (rb_block_given_p())
+    each_sgrp();
+  else if ( (sgroup = getsgent()) )
     return setup_gshadow(sgroup);
   return Qnil;
+
 }
 
 static VALUE
@@ -874,22 +845,21 @@ strt_to_s(VALUE self)
   VALUE v, ary = rb_ary_new();
   long i;
 
-  // g.map{|x| x.kind_of?(Array) ? x.join(',') : x.to_s }.join(':')
   for (i=0; i<RSTRUCT_LEN(self); i++) {
     v = RSTRUCT_PTR(self)[i];
     if (TYPE(v) == T_ARRAY)
-      rb_ary_push(ary, rb_ary_join( (v), safe_setup_str(",") ));
+      rb_ary_push(ary, rb_ary_join( (v), setup_safe_str(",") ));
     else if (TYPE(v) == T_STRING)
       rb_ary_push(ary,v);
     else if (TYPE(v) == T_FIXNUM) {
       if (FIX2INT(v) < 0 )
-	v = safe_setup_str("");
+	v = setup_safe_str("");
       rb_ary_push(ary,v);
     } else
       Check_Type(v, T_STRING); // Or Array, but testing one is easier
   }
 
-  return rb_ary_join(ary, safe_setup_str(":"));
+  return rb_ary_join(ary, setup_safe_str(":"));
 }
 
 static VALUE
@@ -918,10 +888,10 @@ void Init_etcutils()
   rb_extend_object(mEtcUtils, rb_mEnumerable);
 
   // EtcUtils Constants
-  rb_define_global_const("PASSWD", safe_setup_str(PASSWD));
-  rb_define_global_const("SHADOW", safe_setup_str(SHADOW));
-  rb_define_global_const("GROUP", safe_setup_str(GROUP));
-  rb_define_global_const("GSHADOW", safe_setup_str(GSHADOW));
+  rb_define_global_const("PASSWD", setup_safe_str(PASSWD));
+  rb_define_global_const("SHADOW", setup_safe_str(SHADOW));
+  rb_define_global_const("GROUP", setup_safe_str(GROUP));
+  rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
 
   // EtcUtils Functions
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,1);
@@ -937,15 +907,18 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetspent",etcutils_sgetspent,1);
   rb_define_module_function(mEtcUtils,"fgetspent",etcutils_fgetspent,1);
   rb_define_module_function(mEtcUtils,"putspent",etcutils_putspent,2);
+  // Backward compatibility
+  rb_define_alias(mEtcUtils, "getspnam", "find_spwd");
 
   // Password Functions
   rb_define_module_function(mEtcUtils,"getpwent",etcutils_getpwent,0);
   rb_define_module_function(mEtcUtils,"find_pwd",etcutils_getpwXXX,1);
-  rb_define_module_function(mEtcUtils,"getpwnam",etcutils_getpwXXX,1); // Backward compatibility
   rb_define_module_function(mEtcUtils,"setpwent",etcutils_setpwent,0);
   rb_define_module_function(mEtcUtils,"endpwent",etcutils_endpwent,0);
   rb_define_module_function(mEtcUtils,"fgetpwent",etc_fgetpwent,1);
   rb_define_module_function(mEtcUtils,"putpwent",etc_putpwent,2);
+  // Backward compatibility
+  rb_define_alias(mEtcUtils, "getpwnam", "find_pwd");
 
   // GShadow Functions
   rb_define_module_function(mEtcUtils,"getsgent",etcutils_getsgent,0);
@@ -955,15 +928,18 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetsgent",etcutils_sgetsgent,1);
   rb_define_module_function(mEtcUtils,"fgetsgent",etcutils_fgetsgent,1);
   rb_define_module_function(mEtcUtils,"putsgent",etcutils_putsgent,2);
+  // Backward compatibility
+  rb_define_alias(mEtcUtils, "getsgnam", "find_sgrp");
 
   // Group Functions
   rb_define_module_function(mEtcUtils,"getgrent",etcutils_getgrent,0);
   rb_define_module_function(mEtcUtils,"find_grp",etcutils_getgrXXX,1);
-  rb_define_module_function(mEtcUtils,"getgrnam",etcutils_getgrXXX,1);
   rb_define_module_function(mEtcUtils,"setgrent",etcutils_setgrent,0);
   rb_define_module_function(mEtcUtils,"endgrent",etcutils_endgrent,0);
   rb_define_module_function(mEtcUtils,"fgetgrent",etc_fgetgrent,1);
   rb_define_module_function(mEtcUtils,"putgrent",etc_putgrent,2);
+  // Backward compatibility
+  rb_define_alias(mEtcUtils,"getgrnam","find_grp");
 
   // Lock Functions
   rb_define_module_function(mEtcUtils,"lckpwdf",etcutils_lckpwdf,0);
@@ -1010,6 +986,7 @@ void Init_etcutils()
   rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
   rb_define_singleton_method(cPasswd,"set",etcutils_setpwent,0);
   rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
+  rb_define_singleton_method(cPasswd,"each",etcutils_getpwent,0);
   rb_define_method(cPasswd, "fputs", pwd_putpwent, 1);
   rb_define_method(cPasswd, "to_s", strt_to_s,0);
 
@@ -1032,6 +1009,7 @@ void Init_etcutils()
   rb_define_singleton_method(cShadow,"find",etcutils_getspXXX,1);
   rb_define_singleton_method(cShadow,"set",etcutils_setspent,0);
   rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
+  rb_define_singleton_method(cShadow,"each",etcutils_getspent,0);
   rb_define_method(cShadow, "fputs", spwd_putspent, 1);
   rb_define_method(cShadow, "to_s", strt_to_s,0);
 
@@ -1064,6 +1042,7 @@ void Init_etcutils()
   rb_define_singleton_method(cGroup,"find",etcutils_getgrXXX,1);
   rb_define_singleton_method(cGroup,"set",etcutils_setgrent,0);
   rb_define_singleton_method(cGroup,"end",etcutils_endgrent,0);
+  rb_define_singleton_method(cGroup,"each",etcutils_getgrent,0);
   rb_define_method(cGroup, "fputs", grp_putgrent, 1);
   rb_define_method(cGroup, "to_s", strt_to_s,0);
 
@@ -1081,6 +1060,7 @@ void Init_etcutils()
   rb_define_singleton_method(cGShadow,"find",etcutils_getsgXXX,1);
   rb_define_singleton_method(cGShadow,"set",etcutils_setsgent,0);
   rb_define_singleton_method(cGShadow,"end",etcutils_endsgent,0);
+  rb_define_singleton_method(cGShadow,"each",etcutils_getsgent,0);
   rb_define_method(cGShadow, "fputs", sgrp_putsgent, 1);
   rb_define_method(cGShadow, "to_s", strt_to_s,0);
 }

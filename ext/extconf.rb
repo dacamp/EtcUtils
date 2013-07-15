@@ -6,20 +6,22 @@
 
 require 'mkmf'
 
-have_header('ruby.h') or missing('ruby.h')
-have_header('ruby/io.h') or have_header('rubyio.h')
-have_header('ruby/encoding.h')
+have_header('ruby/io.h')
+have_struct_member("struct rb_io_t", "pathv", "ruby/io.h")
+have_func('rb_io_stdio_file')
 
-if (have_library("shadow") or have_header('shadow.h'))
-  have_var('SHADOW', 'shadow.h')
-  have_library("gshadow")
-  have_header('pwd.h')
-  have_header('grp.h')
+have_header('etcutils.h')
 
+if (have_header('pwd.h') && have_header('grp.h'))
+  short_v = ['pw','gr']
+
+  if have_header('shadow.h')
+    short_v << 'sp'
+  end
 
   ["gshadow.h","gshadow_.h"].each do |h|
+    short_v << 'sg'
     if have_header(h)
-      have_var('GSHADOW', h)
       nam = "sg_nam"+ (h =~ /_/ ? 'e' : 'p')
       [nam, "sg_passwd", "sg_adm", "sg_mem"].each do |m|
         have_struct_member("struct sgrp", m, h)
@@ -27,19 +29,17 @@ if (have_library("shadow") or have_header('shadow.h'))
     end
   end
 
-  ['sp','sg','pw','gr'].each do |h|
+  have_func("lckpwdf")
+  have_func("ulckpwdf")
+
+  short_v.each do |h|
     ["get#{h}ent","sget#{h}ent","fget#{h}ent","put#{h}ent","set#{h}ent","end#{h}ent"].each do |func|
       have_func(func)
     end
   end
-  have_func("lckpwdf")
-  have_func("ulckpwdf")
 
-  if with_config("debug")
-    $defs.push("-DDEBUG -Wall") unless $defs.include? "-DDEBUG"
-  end
-
+  create_header
   create_makefile("etcutils")
 else
-  puts "This system is not managed by shadow files... Exiting"
+  puts "This system is not managed by passwd/group files.","Exiting"
 end
