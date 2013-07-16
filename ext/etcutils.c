@@ -339,7 +339,7 @@ etcutils_getpwXXX(VALUE self, VALUE v)
   }
   
   if (!strt)
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), PASSWD);
+    return Qnil;
 
   return setup_passwd(strt);
 }
@@ -362,7 +362,7 @@ etcutils_getspXXX(VALUE self, VALUE v)
   strt = getspnam(StringValuePtr(v));
   
   if (!strt)
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), SHADOW);
+    return Qnil;
 
   return setup_shadow(strt);
 }
@@ -383,7 +383,7 @@ etcutils_getsgXXX(VALUE self, VALUE v)
   strt = getsgnam(StringValuePtr(v));
   
   if (!strt)
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), GSHADOW);
+    return Qnil;
 
   return setup_gshadow(strt);
 }
@@ -402,7 +402,7 @@ etcutils_getgrXXX(VALUE self, VALUE v)
   }
   
   if (!strt)
-    rb_raise(rb_eArgError, "can't find %s in %s", StringValuePtr(v), GROUP);
+    return Qnil;
   return setup_group(strt);
 }
 
