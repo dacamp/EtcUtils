@@ -84,6 +84,7 @@ setup_char_members(VALUE ary)
   char ** mem;
   VALUE temp;
   long i;
+  Check_Type(ary,T_ARRAY);
 
   mem = malloc((RARRAY_LEN(ary) + 1)*sizeof(char**));
   if (mem == NULL)
@@ -415,35 +416,32 @@ static VALUE
 pwd_putpwent(VALUE self, VALUE io)
 {
   struct passwd pwd, *tmp_str;
-  VALUE val[RSTRUCT_LEN(self)];
+  VALUE name = rb_struct_getmember(self,rb_intern("name"));
+  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
+  VALUE gecos = rb_struct_getmember(self,rb_intern("gecos"));
+  VALUE dir   = rb_struct_getmember(self,rb_intern("dir"));
+  VALUE shell  = rb_struct_getmember(self,rb_intern("shell"));
   VALUE path = RFILE_PATH(io);
   long i;
 
-  for (i=0; i<RSTRUCT_LEN(self); i++)
-    val[i] = RSTRUCT_PTR(self)[i];
-
-  SafeStringValue(val[1]);
-  SafeStringValue(val[4]);
-  SafeStringValue(val[5]);
-  SafeStringValue(val[6]);
   ensure_file(io);
 
   rewind(RFILE_FPTR(io));
   i = 0;
   while ( (tmp_str = fgetpwent(RFILE_FPTR(io))) ) {
     i++;
-    if ( !strcmp(tmp_str->pw_name,StringValuePtr(val[0])) )
+    if ( !strcmp(tmp_str->pw_name, StringValuePtr( name ) ) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_str->pw_name,  StringValuePtr(path), i );
   }
 
-  pwd.pw_name     = StringValueCStr(val[0]);
-  pwd.pw_passwd   = StringValueCStr(val[1]);
-  pwd.pw_uid      = NUM2UIDT(val[2]);
-  pwd.pw_gid      = NUM2GIDT(val[3]);
-  pwd.pw_gecos    = StringValueCStr(val[4]);
-  pwd.pw_dir      = StringValueCStr(val[5]);
-  pwd.pw_shell    = StringValueCStr(val[6]);
+  pwd.pw_name     = StringValueCStr( name );
+  pwd.pw_passwd   = StringValueCStr( passwd );
+  pwd.pw_uid      = NUM2UIDT( rb_struct_getmember(self,rb_intern("uid")) );
+  pwd.pw_gid      = NUM2GIDT( rb_struct_getmember(self,rb_intern("gid")) );
+  pwd.pw_gecos    = StringValueCStr( gecos );
+  pwd.pw_dir      = StringValueCStr( dir );
+  pwd.pw_shell    = StringValueCStr( shell );
 
   if ( (putpwent(&pwd, RFILE_FPTR(io))) )
     etcutils_errno(path);
@@ -462,35 +460,31 @@ static VALUE
 spwd_putspent(VALUE self, VALUE io)
 {
   struct spwd spasswd, *tmp_str;
-  VALUE val[RSTRUCT_LEN(self)];
+  VALUE name = rb_struct_getmember(self,rb_intern("name"));
+  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
   VALUE path = RFILE_PATH(io);
   long i;
 
-  for (i=0; i<RSTRUCT_LEN(self); i++)
-    val[i] = RSTRUCT_PTR(self)[i];
-
-  SafeStringValue(val[0]);
-  SafeStringValue(val[1]);
   ensure_file(io);
 
   rewind(RFILE_FPTR(io));
   i = 0;
   while ( (tmp_str = fgetspent(RFILE_FPTR(io))) ) {
     i++;
-    if ( !strcmp(tmp_str->sp_namp,StringValuePtr(val[0])) )
+    if ( !strcmp(tmp_str->sp_namp,StringValuePtr( name )) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_str->sp_namp,  StringValuePtr(path), i );
   }
 
-  spasswd.sp_namp   = StringValueCStr(val[0]);
-  spasswd.sp_pwdp   = StringValueCStr(val[1]);
-  spasswd.sp_lstchg = FIX2INT(val[2]);
-  spasswd.sp_min    = FIX2INT(val[3]);
-  spasswd.sp_max    = FIX2INT(val[4]);
-  spasswd.sp_warn   = FIX2INT(val[5]);
-  spasswd.sp_inact  = FIX2INT(val[6]);
-  spasswd.sp_expire = FIX2INT(val[7]);
-  spasswd.sp_flag   = FIX2INT(val[8]);
+  spasswd.sp_namp   = StringValueCStr( name );
+  spasswd.sp_pwdp   = StringValueCStr( passwd );
+  spasswd.sp_lstchg = FIX2INT( rb_struct_getmember(self,rb_intern("last_change")) );
+  spasswd.sp_min    = FIX2INT( rb_struct_getmember(self,rb_intern("min_change")) );
+  spasswd.sp_max    = FIX2INT( rb_struct_getmember(self,rb_intern("max_change")) );
+  spasswd.sp_warn   = FIX2INT( rb_struct_getmember(self,rb_intern("warn")) );
+  spasswd.sp_inact  = FIX2INT( rb_struct_getmember(self,rb_intern("inactive")) );
+  spasswd.sp_expire = FIX2INT( rb_struct_getmember(self,rb_intern("expire")) );
+  spasswd.sp_flag   = FIX2INT( rb_struct_getmember(self,rb_intern("flag")) );
 
   if ( (putspent(&spasswd, RFILE_FPTR(io))) )
     etcutils_errno(path);
@@ -508,36 +502,31 @@ static VALUE
 grp_putgrent(VALUE self, VALUE io)
 {
   struct group grp, *tmp_str;
-  VALUE val[RSTRUCT_LEN(self)];
+  VALUE name = rb_struct_getmember(self,rb_intern("name"));
+  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
   VALUE path = RFILE_PATH(io);
   long i;
 
-  for (i=0; i<RSTRUCT_LEN(self); i++)
-    val[i] = RSTRUCT_PTR(self)[i];
-
-  SafeStringValue(val[0]);
-  SafeStringValue(val[1]);
-  Check_Type(val[3],T_ARRAY);
   ensure_file(io);
 
   rewind(RFILE_FPTR(io));
   i = 0;
   while ( (tmp_str = fgetgrent(RFILE_FPTR(io))) ) {
     i++;
-    if ( !strcmp(tmp_str->gr_name,StringValuePtr(val[0])) )
+    if ( !strcmp(tmp_str->gr_name,StringValuePtr( name ) ) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_str->gr_name,  StringValuePtr(path), i );
   }
 
-  grp.gr_name   = StringValueCStr(val[0]);
-  grp.gr_passwd = StringValueCStr(val[1]);
-  grp.gr_gid    = NUM2GIDT(val[2]);
-  grp.gr_mem    = setup_char_members(val[3]);
+  grp.gr_name   = StringValueCStr( name );
+  grp.gr_passwd = StringValueCStr( passwd );
+  grp.gr_gid    = NUM2GIDT( rb_struct_getmember(self,rb_intern("gid")) );
+  grp.gr_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
 
   if ( putgrent(&grp,RFILE_FPTR(io)) )
     etcutils_errno(RFILE_PATH(io));
 
-  free_char_members(grp.gr_mem, RARRAY_LEN(val[3]));
+  free_char_members(grp.gr_mem, RARRAY_LEN( rb_struct_getmember(self,rb_intern("members")) ));
 
   return Qtrue;
 }
@@ -553,45 +542,37 @@ static VALUE
 sgrp_putsgent(VALUE self, VALUE io)
 {
   struct sgrp sgroup, *tmp_str;
-  VALUE val[RSTRUCT_LEN(self)];
+  VALUE name = rb_struct_getmember(self,rb_intern("name"));
+  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
   VALUE path = RFILE_PATH(io);
   long i;
-
-  for (i=0; i<RSTRUCT_LEN(self); i++)
-    val[i] = RSTRUCT_PTR(self)[i];
-
-  SafeStringValue(val[0]);
-  SafeStringValue(val[1]);
-  Check_Type(val[2],T_ARRAY);
-  Check_Type(val[3],T_ARRAY);
-  ensure_file(io);
-
+  
   rewind(RFILE_FPTR(io));
   i = 0;
   while ( (tmp_str = fgetsgent(RFILE_FPTR(io))) ) {
     i++;
-    if ( !strcmp(SGRP_NAME(tmp_str),StringValuePtr(val[0])) )
+    if ( !strcmp(SGRP_NAME(tmp_str),StringValuePtr( name ) ) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       SGRP_NAME(tmp_str),  StringValuePtr(path), i );
   }
 
 #ifdef HAVE_ST_SG_NAMP
-  sgroup.sg_namp = StringValueCStr(val[0]);
+  sgroup.sg_namp = StringValueCStr( name );
 #endif
 #if HAVE_ST_SG_NAME
-  sgroup.sg_name = StringValueCStr(val[0]);
+  sgroup.sg_name = StringValueCStr( name );
 #endif
 
-  sgroup.sg_passwd = StringValueCStr(val[1]);
+  sgroup.sg_passwd = StringValueCStr( passwd );
   // char** members start here
-  sgroup.sg_adm    = setup_char_members(val[2]);
-  sgroup.sg_mem    = setup_char_members(val[3]);
+  sgroup.sg_adm    = setup_char_members( rb_struct_getmember(self,rb_intern("admins")) );
+  sgroup.sg_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
 
   if ( putsgent(&sgroup,RFILE_FPTR(io)) )
     etcutils_errno(RFILE_PATH(io));
 
-  free_char_members(sgroup.sg_adm, RARRAY_LEN(val[2]));
-  free_char_members(sgroup.sg_mem, RARRAY_LEN(val[3]));
+  free_char_members(sgroup.sg_adm, RARRAY_LEN( rb_struct_getmember(self,rb_intern("admins")) ) );
+  free_char_members(sgroup.sg_mem, RARRAY_LEN(  rb_struct_getmember(self,rb_intern("members")) ) );
 
   return Qtrue;
 }
@@ -1017,7 +998,7 @@ void Init_etcutils()
 			    "name",
 			    "passwd",
 			    "gid",
-			    "mem",
+			    "members",
 			    NULL);
   /* Define-const: Group
    *
