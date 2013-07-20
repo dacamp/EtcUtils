@@ -1,6 +1,6 @@
 /************************************************
 
- etc_utils.c -
+ etcutils.c -
 
  Ruby C extention for systems that use shadow suite.
 
@@ -23,26 +23,46 @@
 ************************************************/
 
 #include "etcutils.h"
+uid_t uid_global = 0;
+gid_t gid_global = 0;
 
 
 /* Start of helper functions */
 static VALUE
-next_uid( VALUE self, VALUE i )
+next_uid(int argc, VALUE *argv, VALUE self)
 {
-  uid_t req = NUM2UIDT(i);
-  if ((req < 1) || (req > 65533))
-    rb_raise(rb_eArgError, "UID must be between 1 and 65533");
+  uid_t req;
+  VALUE i;
+
+  rb_scan_args(argc, argv, "01", &i);
+  if (NIL_P(i))
+    req = uid_global;
+  else
+    req = NUM2UIDT(i);
+
+  if ((req < 0) || (req > 65533))
+    rb_raise(rb_eArgError, "UID must be between 0 and 65533");
   while ( getpwuid(req) ) req++;
+  uid_global = req + 1;
   return UIDT2NUM(req);
 }
 
 static VALUE
-next_gid (VALUE self, VALUE i )
+next_gid(int argc, VALUE *argv, VALUE self)
 {
-  gid_t req = NUM2GIDT(i);
-  if ((req < 1) || (req > 65533))
-    rb_raise(rb_eArgError, "GID must be between 1 and 65533");
+  gid_t req;
+  VALUE i;
+
+  rb_scan_args(argc, argv, "01", &i);
+  if (NIL_P(i))
+    req = gid_global;
+  else
+    req = NUM2GIDT(i);
+
+  if ((req < 0) || (req > 65533))
+    rb_raise(rb_eArgError, "GID must be between 0 and 65533");
   while ( getgrgid(req) ) req++;
+  gid_global = req +1;
   return GIDT2NUM(req);
 }
 
@@ -253,6 +273,37 @@ etcutils_endspent(VALUE self)
 }
 
 static VALUE
+etcutils_sgetpwent(VALUE self, VALUE nam)
+{
+  VALUE ary, uid, gid;
+  struct passwd *pwd;
+
+  SafeStringValue(nam);
+  ary = rb_str_split(nam,":");
+
+  etcutils_setpwent(self);
+  nam = rb_ary_entry(ary,0);
+  SafeStringValue(nam);
+  if (pwd = getpwnam( StringValuePtr(nam) )) {
+    rb_ary_store(ary, 2, UIDT2NUM(pwd->pw_uid) );
+    rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_uid) );
+  } else  {
+    uid = rb_ary_entry(ary,2);
+    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 ) {
+      uid = next_uid(0, 0, self);
+    }
+    rb_ary_store(ary, 2, rb_Integer( uid ) );
+
+    gid = rb_ary_entry(ary,3);
+    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
+      gid = next_gid(1, &uid, self);
+    rb_ary_store(ary, 3, rb_Integer( gid ) );
+  }
+
+  return rb_struct_alloc( self, ary );
+}
+
+static VALUE
 etcutils_sgetspent(VALUE self, VALUE nam)
 {
   struct spwd *shadow;
@@ -263,6 +314,37 @@ etcutils_sgetspent(VALUE self, VALUE nam)
 	     "can't parse %s into EtcUtils::Shadow", StringValuePtr(nam));
 
   return setup_shadow(shadow);
+}
+
+static VALUE
+etcutils_sgetgrent(VALUE self, VALUE nam)
+{
+  VALUE ary, gid, mem;
+  struct group *grp;
+
+  SafeStringValue(nam);
+  ary = rb_str_split(nam,":");
+
+  etcutils_setgrent(self);
+  nam = rb_ary_entry(ary,0);
+  SafeStringValue(nam);
+  if (grp = getgrnam( StringValuePtr(nam) )) {
+    rb_ary_store(ary, 2, GIDT2NUM(grp->gr_gid) );
+  } else  {
+    gid = rb_ary_entry(ary,2);
+    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
+      gid = next_gid(0, 0, self);
+    rb_ary_store(ary, 2, rb_Integer( gid ) );
+  }
+
+  if (NIL_P(mem = rb_ary_entry(ary,3)))
+    mem = rb_ary_new();
+  else
+    mem = rb_str_split(mem,",");
+
+  rb_ary_store(ary, 3, mem);
+
+  return rb_struct_alloc(self, ary);
 }
 
 static VALUE
@@ -828,6 +910,9 @@ strt_to_s(VALUE self)
 
   for (i=0; i<RSTRUCT_LEN(self); i++) {
     v = RSTRUCT_PTR(self)[i];
+    if (NIL_P(v))
+      v = setup_safe_str("");
+
     if (TYPE(v) == T_ARRAY)
       rb_ary_push(ary, rb_ary_join( (v), setup_safe_str(",") ));
     else if (TYPE(v) == T_STRING)
@@ -875,10 +960,12 @@ void Init_etcutils()
   rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
 
   // EtcUtils Functions
-  rb_define_module_function(mEtcUtils,"next_uid",next_uid,1);
-  rb_define_module_function(mEtcUtils,"next_gid",next_gid,1);
-  rb_define_module_function(mEtcUtils,"setXXent", etcutils_setXXent,0);
-  rb_define_module_function(mEtcUtils,"endXXent", etcutils_endXXent,0);
+  rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
+  rb_define_module_function(mEtcUtils,"next_gid",next_gid,-1);
+  rb_define_module_function(mEtcUtils,"next_uid=",next_uid,-1);
+  rb_define_module_function(mEtcUtils,"next_gid=",next_gid,-1);
+  rb_define_module_function(mEtcUtils,"setXXent",etcutils_setXXent,0);
+  rb_define_module_function(mEtcUtils,"endXXent",etcutils_endXXent,0);
 
   // Shadow Functions
   rb_define_module_function(mEtcUtils,"getspent",etcutils_getspent,0);
@@ -889,7 +976,7 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"fgetspent",etcutils_fgetspent,1);
   rb_define_module_function(mEtcUtils,"putspent",etcutils_putspent,2);
   // Backward compatibility
-  rb_define_alias(mEtcUtils, "getspnam", "find_spwd");
+  rb_define_module_function(mEtcUtils, "getspnam",etcutils_getspXXX,1);
 
   // Password Functions
   rb_define_module_function(mEtcUtils,"getpwent",etcutils_getpwent,0);
@@ -899,7 +986,7 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"fgetpwent",etc_fgetpwent,1);
   rb_define_module_function(mEtcUtils,"putpwent",etc_putpwent,2);
   // Backward compatibility
-  rb_define_alias(mEtcUtils, "getpwnam", "find_pwd");
+  rb_define_module_function(mEtcUtils,"getpwnam",etcutils_getpwXXX,1);
 
   // GShadow Functions
   rb_define_module_function(mEtcUtils,"getsgent",etcutils_getsgent,0);
@@ -910,7 +997,7 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"fgetsgent",etcutils_fgetsgent,1);
   rb_define_module_function(mEtcUtils,"putsgent",etcutils_putsgent,2);
   // Backward compatibility
-  rb_define_alias(mEtcUtils, "getsgnam", "find_sgrp");
+  rb_define_module_function(mEtcUtils,"getsgnam",etcutils_getsgXXX,1);
 
   // Group Functions
   rb_define_module_function(mEtcUtils,"getgrent",etcutils_getgrent,0);
@@ -920,7 +1007,7 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"fgetgrent",etc_fgetgrent,1);
   rb_define_module_function(mEtcUtils,"putgrent",etc_putgrent,2);
   // Backward compatibility
-  rb_define_alias(mEtcUtils,"getgrnam","find_grp");
+  rb_define_module_function(mEtcUtils,"getgrnam",etcutils_getgrXXX,1);
 
   // Lock Functions
   rb_define_module_function(mEtcUtils,"lckpwdf",etcutils_lckpwdf,0);
@@ -965,6 +1052,7 @@ void Init_etcutils()
   rb_set_class_path(cPasswd, mEtcUtils, "Passwd");
   rb_define_singleton_method(cPasswd,"get",etcutils_getpwent,0);
   rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
+  rb_define_singleton_method(cPasswd,"parse",etcutils_sgetpwent,1);
   rb_define_singleton_method(cPasswd,"set",etcutils_setpwent,0);
   rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
   rb_define_singleton_method(cPasswd,"each",etcutils_getpwent,0);
@@ -988,6 +1076,7 @@ void Init_etcutils()
   rb_define_const(rb_cStruct, "Shadow", cShadow); /* deprecated name */
   rb_define_singleton_method(cShadow,"get",etcutils_getspent,0);
   rb_define_singleton_method(cShadow,"find",etcutils_getspXXX,1);
+  rb_define_singleton_method(cShadow,"parse",etcutils_sgetspent,1);
   rb_define_singleton_method(cShadow,"set",etcutils_setspent,0);
   rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
   rb_define_singleton_method(cShadow,"each",etcutils_getspent,0);
@@ -1021,6 +1110,7 @@ void Init_etcutils()
   rb_set_class_path(cGroup, mEtcUtils, "Group");
   rb_define_singleton_method(cGroup,"get",etcutils_getgrent,0);
   rb_define_singleton_method(cGroup,"find",etcutils_getgrXXX,1);
+  rb_define_singleton_method(cGroup,"parse",etcutils_sgetgrent,1);
   rb_define_singleton_method(cGroup,"set",etcutils_setgrent,0);
   rb_define_singleton_method(cGroup,"end",etcutils_endgrent,0);
   rb_define_singleton_method(cGroup,"each",etcutils_getgrent,0);
@@ -1035,10 +1125,12 @@ void Init_etcutils()
                               NULL);
 
   rb_define_const(mEtcUtils, "GShadow",cGShadow);
+  rb_define_const(mEtcUtils, "Gshadow",cGShadow);
   rb_set_class_path(cGShadow, mEtcUtils, "GShadow");
   rb_define_const(rb_cStruct, "GShadow", cGShadow); /* deprecated name */
   rb_define_singleton_method(cGShadow,"get",etcutils_getsgent,0);
-  rb_define_singleton_method(cGShadow,"find",etcutils_getsgXXX,1);
+  rb_define_singleton_method(cGShadow,"find",etcutils_getsgXXX,1); //getsgent, getsguid
+  rb_define_singleton_method(cGShadow,"parse",etcutils_sgetsgent,1);
   rb_define_singleton_method(cGShadow,"set",etcutils_setsgent,0);
   rb_define_singleton_method(cGShadow,"end",etcutils_endsgent,0);
   rb_define_singleton_method(cGShadow,"each",etcutils_getsgent,0);

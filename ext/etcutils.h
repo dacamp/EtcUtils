@@ -76,8 +76,11 @@ static VALUE cPasswd;
 static VALUE cGroup;
 
 /* EtcUtils helper functions */
-static VALUE next_uid( VALUE self, VALUE i );
-static VALUE next_gid( VALUE self, VALUE i );
+extern uid_t uid_global;
+extern gid_t gid_global;
+
+static VALUE next_uid( int argc, VALUE *argv, VALUE self);
+static VALUE next_gid( int argc, VALUE *argv, VALUE self);
 static void ensure_file(VALUE io);
 static void etcutils_errno(VALUE str);
 
