@@ -286,7 +286,7 @@ etcutils_sgetpwent(VALUE self, VALUE nam)
   SafeStringValue(nam);
   if (pwd = getpwnam( StringValuePtr(nam) )) {
     rb_ary_store(ary, 2, UIDT2NUM(pwd->pw_uid) );
-    rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_uid) );
+    rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_gid) );
   } else  {
     uid = rb_ary_entry(ary,2);
     if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 ) {
