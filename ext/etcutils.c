@@ -43,7 +43,12 @@ next_uid(int argc, VALUE *argv, VALUE self)
   if ((req < 0) || (req > 65533))
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
   while ( getpwuid(req) ) req++;
-  uid_global = req + 1;
+
+  if (NIL_P(i))
+    uid_global = req + 1;
+  else
+    uid_global = req;
+
   return UIDT2NUM(req);
 }
 
@@ -62,7 +67,12 @@ next_gid(int argc, VALUE *argv, VALUE self)
   if ((req < 0) || (req > 65533))
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
   while ( getgrgid(req) ) req++;
-  gid_global = req +1;
+
+  if (NIL_P(i))
+    gid_global = req +1;
+  else
+    gid_global = req;
+
   return GIDT2NUM(req);
 }
 
@@ -321,16 +331,20 @@ etcutils_sgetgrent(VALUE self, VALUE nam)
 {
   VALUE ary, gid, mem;
   struct group *grp;
+  struct passwd *pwd;
 
   SafeStringValue(nam);
   ary = rb_str_split(nam,":");
 
   etcutils_setgrent(self);
+  etcutils_setpwent(self);
   nam = rb_ary_entry(ary,0);
   SafeStringValue(nam);
-  if (grp = getgrnam( StringValuePtr(nam) )) {
+  if (grp = getgrnam( StringValuePtr(nam) ))
     rb_ary_store(ary, 2, GIDT2NUM(grp->gr_gid) );
-  } else  {
+  else if (pwd = getpwnam( StringValuePtr(nam) ))
+    rb_ary_store(ary, 2, GIDT2NUM(pwd->pw_gid) );
+  else  {
     gid = rb_ary_entry(ary,2);
     if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
       gid = next_gid(0, 0, self);
