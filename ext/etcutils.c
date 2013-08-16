@@ -82,7 +82,7 @@ etcutils_errno(VALUE str)
   // SafeStringValue(str);
   // if ( (errno) && ( !(errno == ENOTTY) || !(errno == ENOENT) ) )
   //  rb_sys_fail( StringValuePtr(str) );
-  /*  
+  /*
       Errno::ENOTTY: Inappropriate ioctl for device
       https://bugs.ruby-lang.org/issues/6127
       ioctl range error in 1.9.3
@@ -285,28 +285,47 @@ etcutils_endspent(VALUE self)
 static VALUE
 etcutils_sgetpwent(VALUE self, VALUE nam)
 {
-  VALUE ary, uid, gid;
+  VALUE ary, uid, gid, tmp;
   struct passwd *pwd;
+  struct group  *grp;
 
   SafeStringValue(nam);
   ary = rb_str_split(nam,":");
 
   etcutils_setpwent(self);
+  etcutils_setgrent(self);
+
   nam = rb_ary_entry(ary,0);
   SafeStringValue(nam);
   if (pwd = getpwnam( StringValuePtr(nam) )) {
     rb_ary_store(ary, 2, UIDT2NUM(pwd->pw_uid) );
     rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_gid) );
-  } else  {
+  } else {
     uid = rb_ary_entry(ary,2);
-    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 ) {
+    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 )
       uid = next_uid(0, 0, self);
+    else if (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) {
+      tmp = rb_Integer( uid );
+      uid = next_uid(1, &tmp, self);
     }
-    rb_ary_store(ary, 2, rb_Integer( uid ) );
 
     gid = rb_ary_entry(ary,3);
     if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      gid = next_gid(1, &uid, self);
+      if ( (grp = getgrnam( StringValuePtr(nam) )) ) {
+	gid = GIDT2NUM(grp->gr_gid);
+	tmp = uid;
+	uid = next_uid(1, &gid, self);
+	next_uid(1, &tmp, self);
+	next_uid(0, 0, self);
+      } else
+	gid = next_gid(1, &uid, self);
+    else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) )
+      gid = GIDT2NUM(grp->gr_gid);
+    else
+      rb_raise(rb_eArgError,
+	       "Group ID %ld does not exist!", gid);
+
+    rb_ary_store(ary, 2, rb_Integer( uid ) );
     rb_ary_store(ary, 3, rb_Integer( gid ) );
   }
 
@@ -434,7 +453,7 @@ etcutils_getpwXXX(VALUE self, VALUE v)
     SafeStringValue(v);
     strt = getpwnam(StringValuePtr(v));
   }
-  
+
   if (!strt)
     return Qnil;
 
@@ -457,7 +476,7 @@ etcutils_getspXXX(VALUE self, VALUE v)
 
   SafeStringValue(v);
   strt = getspnam(StringValuePtr(v));
-  
+
   if (!strt)
     return Qnil;
 
@@ -478,7 +497,7 @@ etcutils_getsgXXX(VALUE self, VALUE v)
 
   SafeStringValue(v);
   strt = getsgnam(StringValuePtr(v));
-  
+
   if (!strt)
     return Qnil;
 
@@ -497,7 +516,7 @@ etcutils_getgrXXX(VALUE self, VALUE v)
     SafeStringValue(v);
     strt = getgrnam(StringValuePtr(v));
   }
-  
+
   if (!strt)
     return Qnil;
   return setup_group(strt);
@@ -642,7 +661,7 @@ sgrp_putsgent(VALUE self, VALUE io)
   VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
   VALUE path = RFILE_PATH(io);
   long i;
-  
+
   rewind(RFILE_FPTR(io));
   i = 0;
   while ( (tmp_str = fgetsgent(RFILE_FPTR(io))) ) {
