@@ -10,11 +10,11 @@ Gem::Specification.new do |spec|
   spec.summary       = %q{This gem is specific to *nix environments.  It's a rewrite of libshadow-ruby allowing for reads and writes to passwd,shadow,group, and gshadow /etc files.  There are probably still bugs, so use at your own risk.}
   spec.homepage      = "https://github.com/dacamp/etcutils"
 
-  spec.require_paths = '.'
+  spec.require_path  = '.'
   spec.files         = `git ls-files`.split($/)
   spec.test_files    = spec.files.grep(%r{^(test|spec|features)/})
 
-  spec.extensions = ['ext/extconf.rb']
+  spec.extensions = ['ext/etcutils/extconf.rb']
 
   spec.add_development_dependency "bundler", "~> 1.3"
   spec.add_development_dependency "rake"
