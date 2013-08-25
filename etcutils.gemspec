@@ -11,6 +11,7 @@ Gem::Specification.new do |spec|
   spec.homepage      = "https://github.com/dacamp/etcutils"
   spec.has_rdoc      = false
 
+  spec.license = 'MIT'
   spec.require_path  = '.'
   spec.files         = `git ls-files`.split($/)
   spec.test_files    = spec.files.grep(%r{^(test|spec|features)/})
