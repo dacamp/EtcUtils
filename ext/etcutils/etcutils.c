@@ -1,26 +1,30 @@
-/************************************************
+/********************************************************************
 
- etcutils.c -
+ Ruby C Extension for read write access to the Linux user database
 
- Ruby C extention for systems that use shadow suite.
+ Copyright (C) 2013 David Campbell
 
- This file was inspired by the original libshadow-ruby package created
- by Takaaki.Tateishi(ttate@jaist.ac.jp), however has been heavily
- modified to mimic the Ruby Standard Library Etc module.
+ Permission is hereby granted, free of charge, to any person obtaining
+ a copy of this software and associated documentation files (the
+ "Software"), to deal in the Software without restriction, including
+ without limitation the rights to use, copy, modify, merge, publish,
+ distribute, sublicense, and/or sell copies of the Software, and to
+ permit persons to whom the Software is furnished to do so, subject to
+ the following conditions:
 
- Find the original libshadow-ruby (1.4.1-8build1) for Ubuntu here:
- http://packages.ubuntu.com/precise/libshadow-ruby.
+ The above copyright notice and this permission notice shall be
+ included in all copies or substantial portions of the Software.
 
- This is a free software licence, compatible with the GPL via
- an explicit dual-licensing clause under the Ruby License. Free for
- any use at your own risk! http://www.ruby-lang.org/en/about/license.txt
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
 
- Original work Copyright (C) 1998-1999 by Takaaki.Tateishi(ttate@jaist.ac.jp)
- Modified work Copyright 2013 David Campbell (david@mrcampbell.org)
- Modified at: <1999/8/19 06:48:18 by ttate>
- Modified at: <2013/7/4 23:25:28 UTC by dcampbell>
-
-************************************************/
+********************************************************************/
 
 #include "etcutils.h"
 uid_t uid_global = 0;
