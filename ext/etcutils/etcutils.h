@@ -9,34 +9,33 @@
 
 #ifdef HAVE_SHADOW_H
 #include <shadow.h>
-#endif
-#ifdef HAVE_PWD_H
-#include <pwd.h>
-#endif
-#ifdef HAVE_GSHADOW_H
-#include <gshadow.h>
-#endif
-#ifdef HAVE_GSHADOW__H
-#include <gshadow_.h>
-#endif
-#ifdef HAVE_GRP_H
-#include <grp.h>
-#endif
-
-#ifndef PASSWD
-#define PASSWD "/etc/passwd"
-#endif
-
 #ifndef SHADOW
 #define SHADOW "/etc/shadow"
 #endif
+#endif
 
-#ifndef GROUP
-#define GROUP "/etc/group"
+#ifdef HAVE_PWD_H
+#include <pwd.h>
+#ifndef PASSWD
+#define PASSWD "/etc/passwd"
+#endif
+#endif
+
+#ifdef HAVE_GSHADOW_H
+#include <gshadow.h>
+#elif defined(HAVE_GSHADOW__H)
+#include <gshadow_.h>
 #endif
 
 #ifndef GSHADOW
 #define GSHADOW "/etc/gshadow"
+#endif
+
+#ifdef HAVE_GRP_H
+#include <grp.h>
+#ifndef GROUP
+#define GROUP "/etc/group"
+#endif
 #endif
 
 #ifdef HAVE_ST_SG_NAMP
@@ -72,23 +71,10 @@
 
 extern ID id_name, id_passwd, id_uid, id_gid;
 
-typedef struct {
-  int err;
-} RB_EU_USER;
-
-#define RUSER_DATA_PTR(obj) ((RB_EU_USER*)DATA_PTR(obj))
-
-typedef struct rb_eu_group
-{
-  struct group *grp;
-  struct sgrp *sgrp;
-  gid_t gid;
-  int err;
-} RB_EU_GROUP;
-
-#define RGROUP_DATA_PTR(obj) ((RB_EU_GROUP*)DATA_PTR(obj))
-
 extern VALUE mEtcUtils;
+extern VALUE rb_cUser;
+extern VALUE rb_cGroup;
+
 static VALUE cShadow;
 static VALUE cGShadow;
 static VALUE cPasswd;
@@ -100,6 +86,8 @@ extern gid_t gid_global;
 
 extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
+extern VALUE iv_get_time( VALUE self, char *name);
+extern VALUE iv_set_time( VALUE self, VALUE v, char *name);
 extern void etcutils_errno(VALUE str);
 extern void ensure_file(VALUE io);
 
@@ -112,12 +100,11 @@ extern VALUE setup_safe_array(char **arr);
 extern VALUE setup_shadow(struct spwd *shadow);
 extern VALUE setup_passwd(struct passwd *pwd);
 
-static VALUE setup_group(struct group *grp);
-static VALUE setup_gshadow(struct sgrp *sgroup);
+extern VALUE setup_group(struct group *grp);
+#if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)
+extern VALUE setup_gshadow(struct sgrp *sgroup);
+#endif
 /* End of helper functions */
-
-/* User functions */
-extern VALUE setup_shadow(struct spwd *shadow);
 
 extern void Init_etcutils_main();
 extern void Init_etcutils_user();

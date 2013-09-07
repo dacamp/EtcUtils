@@ -78,6 +78,30 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
   return GIDT2NUM(req);
 }
 
+VALUE iv_get_time(VALUE self, char *name)
+{
+  VALUE e = rb_iv_get(self, name);
+
+  if (NUM2INT(e) < 0)
+    return Qnil;
+  
+  time_t t = NUM2INT(e) * 86400;
+  return rb_time_new(t, 0);
+}
+
+VALUE iv_set_time(VALUE self, VALUE v, char *name)
+{
+  struct timeval t = rb_time_timeval(v);
+  long int d = ((long)t.tv_sec / 86400);
+
+  if (FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
+    d = NUM2INT(v);
+  else if (d < 1)
+    d = -1;
+
+  return rb_iv_set(self, name, INT2NUM(d));
+}
+
 void
 etcutils_errno(VALUE str)
 {
@@ -94,14 +118,12 @@ etcutils_errno(VALUE str)
   //errno = 0;
 }
 
-void
-ensure_file(VALUE io)
+void ensure_file(VALUE io)
 {
   Check_Type(io, T_FILE);
 }
 
-void
-free_char_members(char ** mem, int c)
+void free_char_members(char ** mem, int c)
 {
   if (NULL != mem) {
     int i=0;
@@ -110,8 +132,7 @@ free_char_members(char ** mem, int c)
   }
 }
 
-char**
-setup_char_members(VALUE ary)
+char** setup_char_members(VALUE ary)
 {
   char ** mem;
   VALUE temp;
@@ -135,46 +156,18 @@ setup_char_members(VALUE ary)
   return mem;
 }
 
-VALUE
-setup_safe_str(const char *str)
+VALUE setup_safe_str(const char *str)
 {
   return rb_tainted_str_new2(str); // this already handles characters >= 0
 }
 
-VALUE
-setup_safe_array(char **arr)
+VALUE setup_safe_array(char **arr)
 {
   VALUE mem = rb_ary_new();
 
   while (*arr)
     rb_ary_push(mem, setup_safe_str(*arr++));
   return mem;
-}
-
-static VALUE
-setup_gshadow(struct sgrp *sgroup)
-{
-  if (!sgroup) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
-  return rb_struct_new(cGShadow,
-		       setup_safe_str(SGRP_NAME(sgroup)),
-		       setup_safe_str(sgroup->sg_passwd),
-		       setup_safe_array(sgroup->sg_adm),
-		       setup_safe_array(sgroup->sg_mem),
-		       NULL);
-}
-
-static VALUE
-setup_group(struct group *grp)
-{
-  if (!grp) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Group instance." ) );
-  return rb_struct_new(cGroup,
-		       setup_safe_str(grp->gr_name),
-		       setup_safe_str(grp->gr_passwd),
-		       GIDT2NUM(grp->gr_gid),
-		       setup_safe_array(grp->gr_mem),
-		       NULL);
 }
 
 /* End of helper functions */
@@ -951,12 +944,15 @@ etcutils_endXXent(VALUE self)
 }
 
 VALUE mEtcUtils;
+VALUE rb_cUser;
 ID id_name, id_passwd, id_uid, id_gid;
 
 void Init_etcutils()
 {
   mEtcUtils = rb_define_module("EtcUtils");
   rb_extend_object(mEtcUtils, rb_mEnumerable);
+
+  rb_cUser = rb_define_class_under(mEtcUtils,"User",rb_cObject);
 
   id_name   = rb_intern("@name");
   id_passwd = rb_intern("@passwd");
@@ -965,9 +961,14 @@ void Init_etcutils()
 
   // EtcUtils Constants
   rb_define_global_const("PASSWD", setup_safe_str(PASSWD));
+#ifdef SHADOW
   rb_define_global_const("SHADOW", setup_safe_str(SHADOW));
+#endif
+
   rb_define_global_const("GROUP", setup_safe_str(GROUP));
+#ifdef GSHADOW
   rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
+#endif
 
   // EtcUtils Functions
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
@@ -1060,6 +1061,7 @@ void Init_etcutils()
    */
   rb_define_const(mEtcUtils,"Passwd",cPasswd);
   rb_set_class_path(cPasswd, mEtcUtils, "Passwd");
+  rb_define_const(rb_cStruct, "Passwd", cPasswd); /* deprecated name */
   rb_define_singleton_method(cPasswd,"get",etcutils_getpwent,0);
   rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
   rb_define_singleton_method(cPasswd,"parse",etcutils_sgetpwent,1);
