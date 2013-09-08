@@ -451,7 +451,7 @@ etcutils_getpwXXX(VALUE self, VALUE v)
   struct passwd *strt;
   etcutils_setpwent(self);
 
-  if (TYPE(v) == T_FIXNUM)
+  if (FIXNUM_P(v))
     strt = getpwuid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -470,7 +470,7 @@ etcutils_getspXXX(VALUE self, VALUE v)
   struct spwd *strt;
   etcutils_setspent(self);
 
-  if (TYPE(v) == T_FIXNUM) {
+  if (FIXNUM_P(v)) {
     struct passwd *s;
     if ( (s = getpwuid(NUM2UIDT(v))) )
       v = rb_str_new2(s->pw_name);
@@ -493,7 +493,7 @@ etcutils_getsgXXX(VALUE self, VALUE v)
   struct sgrp *strt;
   etcutils_setsgent(self);
 
-  if (TYPE(v) == T_FIXNUM) {
+  if (FIXNUM_P(v)) {
     struct group *s;
     if ( (s = getgrgid(NUM2UIDT(v))) )
       v = setup_safe_str(s->gr_name);
@@ -514,7 +514,7 @@ etcutils_getgrXXX(VALUE self, VALUE v)
   struct group *strt;
   etcutils_setgrent(self);
 
-  if (TYPE(v) == T_FIXNUM)
+  if (FIXNUM_P(v))
     strt = getgrgid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -954,12 +954,12 @@ strt_to_s(VALUE self)
       rb_ary_push(ary, rb_ary_join( (v), setup_safe_str(",") ));
     else if (TYPE(v) == T_STRING)
       rb_ary_push(ary,v);
-    else if (TYPE(v) == T_FIXNUM) {
+    else if (FIXNUM_P(v)) {
       if (FIX2INT(v) < 0 )
 	v = setup_safe_str("");
       rb_ary_push(ary,v);
     } else
-      Check_Type(v, T_STRING); // Or Array, but testing one is easier
+      Check_Type(v, T_STRING);
   }
 
   return rb_ary_join(ary, setup_safe_str(":"));
