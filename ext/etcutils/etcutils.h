@@ -97,6 +97,11 @@ extern void free_char_members(char ** mem, int c);
 extern VALUE setup_safe_str(const char *str);
 extern VALUE setup_safe_array(char **arr);
 
+extern VALUE eu_setpwent(VALUE self);
+extern VALUE eu_endpwent(VALUE self);
+extern VALUE eu_setspent(VALUE self);
+extern VALUE eu_endspent(VALUE self);
+
 extern VALUE setup_shadow(struct spwd *shadow);
 extern VALUE setup_passwd(struct passwd *pwd);
 

@@ -64,6 +64,24 @@ VALUE setup_passwd(struct passwd *pwd)
   return obj;
 }
 
+static VALUE
+eu_user_setent(VALUE self)
+{
+  eu_setpwent(self);
+  eu_setspent(self);
+
+  return Qnil;
+}
+
+static VALUE
+eu_user_endent(VALUE self)
+{
+  eu_endpwent(self);
+  eu_endspent(self);
+
+  return Qnil;
+}
+     
 void Init_etcutils_user()
 {
 
@@ -94,4 +112,8 @@ void Init_etcutils_user()
   rb_define_method(rb_cUser, "expire_date", eu_user_get_expire, 0);
   rb_define_method(rb_cUser, "expire_date=", eu_user_set_expire, 1);
 #endif
+
+  // Method declarations
+  rb_define_singleton_method(rb_cUser,"set", eu_user_setent, 0);
+  rb_define_singleton_method(rb_cUser,"end", eu_user_endent, 0);
 }

@@ -172,6 +172,42 @@ VALUE setup_safe_array(char **arr)
 
 /* End of helper functions */
 
+/* set/end syscalls */
+VALUE eu_setpwent(VALUE self)
+{
+#ifdef HAVE_SETPWENT
+  setpwent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_endpwent(VALUE self)
+{
+#ifdef HAVE_ENDPWENT
+  endpwent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_setspent(VALUE self)
+{
+#ifdef HAVE_SETSPENT
+  setspent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_endspent(VALUE self)
+{
+#ifdef HAVE_ENDSPENT
+  endspent();
+#endif
+  return Qnil;
+}
+
+
+/* End of set/end syscalls */
+
 static VALUE
 etcutils_setsgent(VALUE self)
 {
@@ -209,42 +245,6 @@ etcutils_endgrent(VALUE self)
 }
 
 static VALUE
-etcutils_setspent(VALUE self)
-{
-#ifdef HAVE_SETSPENT
-  setspent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_setpwent(VALUE self)
-{
-#ifdef HAVE_SETPWENT
-  setpwent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_endpwent(VALUE self)
-{
-#ifdef HAVE_ENDPWENT
-  endpwent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_endspent(VALUE self)
-{
-#ifdef HAVE_ENDSPENT
-  endspent();
-#endif
-  return Qnil;
-}
-
-static VALUE
 etcutils_sgetpwent(VALUE self, VALUE nam)
 {
   VALUE ary, uid, gid, tmp;
@@ -254,7 +254,7 @@ etcutils_sgetpwent(VALUE self, VALUE nam)
   SafeStringValue(nam);
   ary = rb_str_split(nam,":");
 
-  etcutils_setpwent(self);
+  eu_setpwent(self);
   etcutils_setgrent(self);
 
   nam = rb_ary_entry(ary,0);
@@ -318,7 +318,7 @@ etcutils_sgetgrent(VALUE self, VALUE nam)
   ary = rb_str_split(nam,":");
 
   etcutils_setgrent(self);
-  etcutils_setpwent(self);
+  eu_setpwent(self);
   nam = rb_ary_entry(ary,0);
   SafeStringValue(nam);
   if (grp = getgrnam( StringValuePtr(nam) ))
@@ -407,7 +407,7 @@ static VALUE
 etcutils_getpwXXX(VALUE self, VALUE v)
 {
   struct passwd *strt;
-  etcutils_setpwent(self);
+  eu_setpwent(self);
 
   if (TYPE(v) == T_FIXNUM)
     strt = getpwuid(NUM2UIDT(v));
@@ -426,7 +426,7 @@ static VALUE
 etcutils_getspXXX(VALUE self, VALUE v)
 {
   struct spwd *strt;
-  etcutils_setspent(self);
+  eu_setspent(self);
 
   if (TYPE(v) == T_FIXNUM) {
     struct passwd *s;
@@ -532,7 +532,6 @@ etc_putpwent(VALUE klass, VALUE entry, VALUE io)
   return pwd_putpwent(entry,io);
 }
 
-
 static VALUE
 spwd_putspent(VALUE self, VALUE io)
 {
@@ -613,7 +612,6 @@ etc_putgrent(VALUE klass, VALUE entry, VALUE io)
 {
   return grp_putgrent(entry,io);
 }
-
 
 static VALUE
 sgrp_putsgent(VALUE self, VALUE io)
@@ -798,7 +796,6 @@ etcutils_getpwent(VALUE self)
   return Qnil;
 }
 
-
 static VALUE
 grp_iterate(void)
 {
@@ -828,7 +825,6 @@ each_group(void)
   rb_ensure(grp_iterate, 0, grp_ensure, 0);
 }
 
-
 static VALUE
 etcutils_getgrent(VALUE self)
 {
@@ -840,7 +836,6 @@ etcutils_getgrent(VALUE self)
     return setup_group(grp);
   return Qnil;
 }
-
 
 static VALUE
 etcutils_getspent(VALUE self)
@@ -883,7 +878,6 @@ each_sgrp(void)
   rb_ensure(sgrp_iterate, 0, sgrp_ensure, 0);
 }
 
-
 static VALUE
 etcutils_getsgent(VALUE self)
 {
@@ -894,7 +888,6 @@ etcutils_getsgent(VALUE self)
   else if ( (sgroup = getsgent()) )
     return setup_gshadow(sgroup);
   return Qnil;
-
 }
 
 static VALUE
@@ -926,9 +919,9 @@ strt_to_s(VALUE self)
 static VALUE
 etcutils_setXXent(VALUE self)
 {
-  etcutils_setpwent(self);
+  eu_setpwent(self);
   etcutils_setgrent(self);
-  etcutils_setspent(self);
+  eu_setspent(self);
   etcutils_setsgent(self);
   return Qnil;
 }
@@ -936,9 +929,9 @@ etcutils_setXXent(VALUE self)
 static VALUE
 etcutils_endXXent(VALUE self)
 {
-  etcutils_endpwent(self);
+  eu_endpwent(self);
   etcutils_endgrent(self);
-  etcutils_endspent(self);
+  eu_endspent(self);
   etcutils_endsgent(self);
   return Qnil;
 }
@@ -981,8 +974,8 @@ void Init_etcutils()
   // Shadow Functions
   rb_define_module_function(mEtcUtils,"getspent",etcutils_getspent,0);
   rb_define_module_function(mEtcUtils,"find_spwd",etcutils_getspXXX,1);
-  rb_define_module_function(mEtcUtils,"setspent",etcutils_setspent,0);
-  rb_define_module_function(mEtcUtils,"endspent",etcutils_endspent,0);
+  rb_define_module_function(mEtcUtils,"setspent",eu_setspent,0);
+  rb_define_module_function(mEtcUtils,"endspent",eu_endspent,0);
   rb_define_module_function(mEtcUtils,"sgetspent",etcutils_sgetspent,1);
   rb_define_module_function(mEtcUtils,"fgetspent",etcutils_fgetspent,1);
   rb_define_module_function(mEtcUtils,"putspent",etcutils_putspent,2);
@@ -992,8 +985,8 @@ void Init_etcutils()
   // Password Functions
   rb_define_module_function(mEtcUtils,"getpwent",etcutils_getpwent,0);
   rb_define_module_function(mEtcUtils,"find_pwd",etcutils_getpwXXX,1);
-  rb_define_module_function(mEtcUtils,"setpwent",etcutils_setpwent,0);
-  rb_define_module_function(mEtcUtils,"endpwent",etcutils_endpwent,0);
+  rb_define_module_function(mEtcUtils,"setpwent",eu_setpwent,0);
+  rb_define_module_function(mEtcUtils,"endpwent",eu_endpwent,0);
   rb_define_module_function(mEtcUtils,"fgetpwent",etc_fgetpwent,1);
   rb_define_module_function(mEtcUtils,"putpwent",etc_putpwent,2);
   // Backward compatibility
@@ -1065,8 +1058,8 @@ void Init_etcutils()
   rb_define_singleton_method(cPasswd,"get",etcutils_getpwent,0);
   rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
   rb_define_singleton_method(cPasswd,"parse",etcutils_sgetpwent,1);
-  rb_define_singleton_method(cPasswd,"set",etcutils_setpwent,0);
-  rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
+  rb_define_singleton_method(cPasswd,"set",eu_setpwent,0);
+  rb_define_singleton_method(cPasswd,"end",eu_endpwent,0);
   rb_define_singleton_method(cPasswd,"each",etcutils_getpwent,0);
   rb_define_method(cPasswd, "fputs", pwd_putpwent, 1);
   rb_define_method(cPasswd, "to_s", strt_to_s,0);
@@ -1089,8 +1082,8 @@ void Init_etcutils()
   rb_define_singleton_method(cShadow,"get",etcutils_getspent,0);
   rb_define_singleton_method(cShadow,"find",etcutils_getspXXX,1);
   rb_define_singleton_method(cShadow,"parse",etcutils_sgetspent,1);
-  rb_define_singleton_method(cShadow,"set",etcutils_setspent,0);
-  rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
+  rb_define_singleton_method(cShadow,"set",eu_setspent,0);
+  rb_define_singleton_method(cShadow,"end",eu_endspent,0);
   rb_define_singleton_method(cShadow,"each",etcutils_getspent,0);
   rb_define_method(cShadow, "fputs", spwd_putspent, 1);
   rb_define_method(cShadow, "to_s", strt_to_s,0);
