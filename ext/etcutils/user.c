@@ -1,35 +1,99 @@
 #include "etcutils.h"
+VALUE rb_cPasswd, rb_cShadow;
 
 static VALUE
-eu_user_get_pw_change(VALUE self)
+user_get_pw_change(VALUE self)
 {
   return iv_get_time(self, "@last_pw_change");
 }
 
 static VALUE
-eu_user_set_pw_change(VALUE self, VALUE v)
+user_set_pw_change(VALUE self, VALUE v)
 {
   return iv_set_time(self, v, "@last_pw_change");
 }
 
 static VALUE
-eu_user_get_expire(VALUE self)
+user_get_expire(VALUE self)
 {
   return iv_get_time(self, "@expire");
 }
 
 static VALUE
-eu_user_set_expire(VALUE self, VALUE v)
+user_set_expire(VALUE self, VALUE v)
 {
   return iv_set_time(self, v, "@expire");
+}
+
+VALUE user_putpwent(VALUE self, VALUE io)
+{
+  struct passwd pwd, *tmp_pwd;
+  VALUE path = RFILE_PATH(io);
+  long i = 0;
+
+  pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
+
+  ensure_file(io);
+  rewind(RFILE_FPTR(io));
+  while ( (tmp_pwd = fgetpwent(RFILE_FPTR(io))) )
+    if ( !strcmp(tmp_pwd->pw_name, pwd.pw_name) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       tmp_pwd->pw_name,  StringValuePtr(path), ++i );
+
+  pwd.pw_passwd   = RSTRING_PTR(rb_ivar_get(self, id_passwd));
+  pwd.pw_uid      = NUM2UIDT( rb_ivar_get(self,id_uid) );
+  pwd.pw_gid      = NUM2GIDT( rb_ivar_get(self,id_uid) );
+  pwd.pw_gecos    = RSTRING_PTR(rb_iv_get(self, "@gecos"));
+  pwd.pw_dir      = RSTRING_PTR(rb_iv_get(self, "@directory"));
+  pwd.pw_shell    = RSTRING_PTR(rb_iv_get(self, "@shell"));
+
+  if ( (putpwent(&pwd, RFILE_FPTR(io))) )
+    eu_errno(path);
+
+  return Qtrue;
+}
+
+VALUE user_putspent(VALUE self, VALUE io)
+{
+  struct spwd spasswd, *tmp_str;
+  VALUE name = rb_struct_getmember(self,rb_intern("name"));
+  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
+  VALUE path = RFILE_PATH(io);
+  long i;
+
+  ensure_file(io);
+
+  rewind(RFILE_FPTR(io));
+  i = 0;
+  while ( (tmp_str = fgetspent(RFILE_FPTR(io))) ) {
+    i++;
+    if ( !strcmp(tmp_str->sp_namp,StringValuePtr( name )) )
+      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
+	       tmp_str->sp_namp,  StringValuePtr(path), i );
+  }
+
+  spasswd.sp_namp   = StringValueCStr( name );
+  spasswd.sp_pwdp   = StringValueCStr( passwd );
+  spasswd.sp_lstchg = FIX2INT( rb_struct_getmember(self,rb_intern("last_change")) );
+  spasswd.sp_min    = FIX2INT( rb_struct_getmember(self,rb_intern("min_change")) );
+  spasswd.sp_max    = FIX2INT( rb_struct_getmember(self,rb_intern("max_change")) );
+  spasswd.sp_warn   = FIX2INT( rb_struct_getmember(self,rb_intern("warn")) );
+  spasswd.sp_inact  = FIX2INT( rb_struct_getmember(self,rb_intern("inactive")) );
+  spasswd.sp_expire = FIX2INT( rb_struct_getmember(self,rb_intern("expire")) );
+  spasswd.sp_flag   = FIX2INT( rb_struct_getmember(self,rb_intern("flag")) );
+
+  if ( (putspent(&spasswd, RFILE_FPTR(io))) )
+    eu_errno(path);
+
+  return Qtrue;
 }
 
 VALUE setup_shadow(struct spwd *shadow)
 {
   if (!shadow) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
+  eu_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cUser);
+  VALUE obj = rb_obj_alloc(rb_cShadow);
 
   rb_ivar_set(obj, id_name, setup_safe_str(shadow->sp_namp));
   rb_ivar_set(obj, id_passwd, setup_safe_str(shadow->sp_pwdp));
@@ -48,9 +112,9 @@ VALUE setup_shadow(struct spwd *shadow)
 VALUE setup_passwd(struct passwd *pwd)
 {
   if (!pwd) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Password instance." ) );
+  eu_errno( setup_safe_str ( "Error setting up Password instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cUser);
+  VALUE obj = rb_obj_alloc(rb_cPasswd);
 
   rb_ivar_set(obj, id_name, setup_safe_str(pwd->pw_name));
   rb_ivar_set(obj, id_passwd, setup_safe_str(pwd->pw_passwd));
@@ -64,56 +128,55 @@ VALUE setup_passwd(struct passwd *pwd)
   return obj;
 }
 
-static VALUE
-eu_user_setent(VALUE self)
-{
-  eu_setpwent(self);
-  eu_setspent(self);
-
-  return Qnil;
-}
-
-static VALUE
-eu_user_endent(VALUE self)
-{
-  eu_endpwent(self);
-  eu_endspent(self);
-
-  return Qnil;
-}
-     
 void Init_etcutils_user()
 {
 
 #ifdef HAVE_PWD_H
   // Would love to make these read only if the user does not have access.
-  rb_define_attr(rb_cUser, "name", 1, 1);
-  rb_define_attr(rb_cUser, "passwd", 1, 1);
-  rb_define_attr(rb_cUser, "uid", 1, 1);
-  rb_define_attr(rb_cUser, "gid", 1, 1);
-  rb_define_attr(rb_cUser, "gecos", 1, 1);
-  rb_define_attr(rb_cUser, "directory", 1, 1);
-  rb_define_attr(rb_cUser, "shell", 1, 1);
+  rb_define_attr(rb_cPasswd, "name", 1, 1);
+  rb_define_attr(rb_cPasswd, "passwd", 1, 1);
+  rb_define_attr(rb_cPasswd, "uid", 1, 1);
+  rb_define_attr(rb_cPasswd, "gid", 1, 1);
+  rb_define_attr(rb_cPasswd, "gecos", 1, 1);
+  rb_define_attr(rb_cPasswd, "directory", 1, 1);
+  rb_define_attr(rb_cPasswd, "shell", 1, 1);
+
+  rb_define_method(rb_cPasswd, "to_entry", eu_to_entry,0);
+  rb_define_method(rb_cPasswd, "fputs", user_putpwent, 1);
+
+  rb_define_singleton_method(rb_cPasswd,"get",eu_getpwent,0);
+  rb_define_singleton_method(rb_cPasswd,"each",eu_getpwent,0);
+  rb_define_singleton_method(rb_cPasswd,"find",eu_getpwd,1); // -1 return array
+  rb_define_singleton_method(rb_cPasswd,"parse",eu_sgetpwent,1);
 #endif
 
-#ifdef HAVE_SHADOW_H
-  // Shadow specific methods
-  rb_define_attr(rb_cUser, "min_pw_age", 1, 1);
-  rb_define_attr(rb_cUser, "max_pw_age", 1, 1);
-  rb_define_attr(rb_cUser, "last_pw_change", 1, 0); //expressed as the number of days since Jan 1, 1970
+#ifdef HAVE_SHADOW_H // Shadow specific methods
+  rb_define_attr(rb_cShadow, "name", 1, 1);
+  rb_define_attr(rb_cShadow, "passwd", 1, 1);
+  rb_define_attr(rb_cShadow, "min_pw_age", 1, 1);
+  rb_define_attr(rb_cShadow, "max_pw_age", 1, 1);
+  rb_define_attr(rb_cShadow, "last_pw_change", 1, 0); //expressed as the number of days since Jan 1, 1970
+  rb_define_attr(rb_cShadow, "warning", 1, 1);
+  rb_define_attr(rb_cShadow, "inactive", 1, 1);
+  rb_define_attr(rb_cShadow, "expire", 1, 1); // expressed as the number of days since Jan 1, 1970
+  rb_define_attr(rb_cShadow, "flag", 1, 0); // reserved for future use
 
-  rb_define_attr(rb_cUser, "warning", 1, 1);
-  rb_define_attr(rb_cUser, "inactive", 1, 1);
-  rb_define_attr(rb_cUser, "expire", 1, 1); // expressed as the number of days since Jan 1, 1970
+  rb_define_method(rb_cShadow, "last_pw_change_date", user_get_pw_change, 0);
+  rb_define_method(rb_cShadow, "expire_date", user_get_expire, 0);
+  rb_define_method(rb_cShadow, "expire_date=", user_set_expire, 1);
 
-  rb_define_attr(rb_cUser, "flag", 1, 0); // reserved for future use
+  rb_define_method(rb_cShadow, "fputs", user_putspent, 1);
+  rb_define_method(rb_cShadow, "to_entry", eu_to_entry,0);
 
-  rb_define_method(rb_cUser, "last_pw_change_date", eu_user_get_pw_change, 0);
-  rb_define_method(rb_cUser, "expire_date", eu_user_get_expire, 0);
-  rb_define_method(rb_cUser, "expire_date=", eu_user_set_expire, 1);
+  rb_define_singleton_method(rb_cShadow,"get",eu_getspent,0);
+  rb_define_singleton_method(rb_cShadow,"each",eu_getspent,0);
+  rb_define_singleton_method(rb_cShadow,"find",eu_getspwd,1);
+  rb_define_singleton_method(rb_cShadow,"parse",eu_sgetspent,1);
 #endif
 
-  // Method declarations
-  rb_define_singleton_method(rb_cUser,"set", eu_user_setent, 0);
-  rb_define_singleton_method(rb_cUser,"end", eu_user_endent, 0);
+  rb_define_singleton_method(rb_cPasswd,"set", eu_setpwent, 0);
+  rb_define_singleton_method(rb_cPasswd,"end", eu_endpwent, 0);
+
+  rb_define_singleton_method(rb_cShadow,"set", eu_setspent, 0);
+  rb_define_singleton_method(rb_cShadow,"end", eu_endspent, 0);
 }

@@ -72,23 +72,23 @@
 extern ID id_name, id_passwd, id_uid, id_gid;
 
 extern VALUE mEtcUtils;
-extern VALUE rb_cUser;
+
+extern VALUE rb_cPasswd;
+extern VALUE rb_cShadow;
 extern VALUE rb_cGroup;
+extern VALUE rb_cGshadow;
 
-static VALUE cShadow;
-static VALUE cGShadow;
-static VALUE cPasswd;
-static VALUE cGroup;
-
-/* EtcUtils helper functions */
+/* EU helper functions */
 extern uid_t uid_global;
 extern gid_t gid_global;
 
+VALUE rb_obj_inspect(VALUE obj);
+
 extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
-extern VALUE iv_get_time( VALUE self, char *name);
-extern VALUE iv_set_time( VALUE self, VALUE v, char *name);
-extern void etcutils_errno(VALUE str);
+extern VALUE iv_get_time(VALUE self, char *name);
+extern VALUE iv_set_time(VALUE self, VALUE v, char *name);
+extern void eu_errno(VALUE str);
 extern void ensure_file(VALUE io);
 
 extern char** setup_char_members(VALUE ary);
@@ -97,11 +97,6 @@ extern void free_char_members(char ** mem, int c);
 extern VALUE setup_safe_str(const char *str);
 extern VALUE setup_safe_array(char **arr);
 
-extern VALUE eu_setpwent(VALUE self);
-extern VALUE eu_endpwent(VALUE self);
-extern VALUE eu_setspent(VALUE self);
-extern VALUE eu_endspent(VALUE self);
-
 extern VALUE setup_shadow(struct spwd *shadow);
 extern VALUE setup_passwd(struct passwd *pwd);
 
@@ -109,7 +104,44 @@ extern VALUE setup_group(struct group *grp);
 #if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)
 extern VALUE setup_gshadow(struct sgrp *sgroup);
 #endif
-/* End of helper functions */
+
+extern VALUE eu_to_entry(VALUE self);
+
+extern VALUE eu_setpwent(VALUE self);
+extern VALUE eu_setspent(VALUE self);
+extern VALUE eu_setgrent(VALUE self);
+extern VALUE eu_setsgent(VALUE self);
+
+extern VALUE eu_endpwent(VALUE self);
+extern VALUE eu_endspent(VALUE self);
+extern VALUE eu_endsgent(VALUE self);
+extern VALUE eu_endgrent(VALUE self);
+
+extern VALUE eu_getpwent(VALUE self);
+extern VALUE eu_getspent(VALUE self);
+extern VALUE eu_getgrent(VALUE self);
+extern VALUE eu_getsgent(VALUE self);
+
+extern VALUE eu_getpwd(VALUE self, VALUE v);
+extern VALUE eu_getspwd(VALUE self, VALUE v);
+extern VALUE eu_getgrp(VALUE self, VALUE v);
+extern VALUE eu_getsgrp(VALUE self, VALUE v);
+
+extern VALUE eu_sgetpwent(VALUE self, VALUE nam);
+extern VALUE eu_sgetspent(VALUE self, VALUE nam);
+extern VALUE eu_sgetgrent(VALUE self, VALUE nam);
+extern VALUE eu_sgetsgent(VALUE self, VALUE nam);
+/* END EU helper functions */
+
+/* EU User functions */
+extern VALUE user_putpwent(VALUE self, VALUE io);
+extern VALUE user_putspent(VALUE self, VALUE io);
+/* END EU User functions */
+
+/* EU Group functions */
+extern VALUE group_putgrent(VALUE self, VALUE io);
+extern VALUE group_putsgent(VALUE self, VALUE io);
+/* END EU Group functions */
 
 extern void Init_etcutils_main();
 extern void Init_etcutils_user();
