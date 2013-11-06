@@ -3,70 +3,55 @@ VALUE rb_cGroup, rb_cGshadow;
 
 VALUE group_putgrent(VALUE self, VALUE io)
 {
-  struct group grp, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
+  struct group grp, *tmp_grp;
   VALUE path = RFILE_PATH(io);
-  long i;
+  long i=0;
+
+  grp.gr_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
   ensure_file(io);
-
   rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetgrent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(tmp_str->gr_name,StringValuePtr( name ) ) )
+  while ( (tmp_grp = fgetgrent(RFILE_FPTR(io))) )
+    if ( !strcmp(tmp_grp->gr_name, grp.gr_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       tmp_str->gr_name,  StringValuePtr(path), i );
-  }
+	       tmp_grp->gr_name,  StringValuePtr(path), ++i );
 
-  grp.gr_name   = StringValueCStr( name );
-  grp.gr_passwd = StringValueCStr( passwd );
-  grp.gr_gid    = NUM2GIDT( rb_struct_getmember(self,rb_intern("gid")) );
-  grp.gr_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
+  grp.gr_passwd = RSTRING_PTR(rb_ivar_get(self, id_passwd));
+  grp.gr_gid    = NUM2GIDT( rb_ivar_get(self, id_gid) );
+  grp.gr_mem    = setup_char_members( rb_iv_get(self, "@members") );
 
   if ( putgrent(&grp,RFILE_FPTR(io)) )
     eu_errno(RFILE_PATH(io));
 
-  free_char_members(grp.gr_mem, RARRAY_LEN( rb_struct_getmember(self,rb_intern("members")) ));
+  free_char_members(grp.gr_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));
 
   return Qtrue;
 }
 
 VALUE group_putsgent(VALUE self, VALUE io)
 {
-  struct sgrp sgroup, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
+  struct sgrp sgroup, *tmp_sgrp;
   VALUE path = RFILE_PATH(io);
-  long i;
+  long i=0;
 
+  SGRP_NAME(&sgroup)  = RSTRING_PTR(rb_ivar_get(self, id_name));
+
+  ensure_file(io);
   rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetsgent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(SGRP_NAME(tmp_str),StringValuePtr( name ) ) )
+  while ( (tmp_sgrp = fgetsgent(RFILE_FPTR(io))) )
+    if ( !strcmp(SGRP_NAME(tmp_sgrp), SGRP_NAME(&sgroup)) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       SGRP_NAME(tmp_str),  StringValuePtr(path), i );
-  }
+	       RSTRING_PTR(rb_ivar_get(self, id_name)), StringValuePtr(path), ++i );
 
-#ifdef HAVE_ST_SG_NAMP
-  sgroup.sg_namp = StringValueCStr( name );
-#endif
-#if HAVE_ST_SG_NAME
-  sgroup.sg_name = StringValueCStr( name );
-#endif
-
-  sgroup.sg_passwd = StringValueCStr( passwd );
-  // char** members start here
-  sgroup.sg_adm    = setup_char_members( rb_struct_getmember(self,rb_intern("admins")) );
-  sgroup.sg_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
+  sgroup.sg_passwd = RSTRING_PTR(rb_ivar_get(self, id_passwd));
+  sgroup.sg_adm    = setup_char_members( rb_iv_get(self,"@admins") );
+  sgroup.sg_mem    = setup_char_members( rb_iv_get(self, "@members") );
 
   if ( putsgent(&sgroup,RFILE_FPTR(io)) )
     eu_errno(RFILE_PATH(io));
 
-  free_char_members(sgroup.sg_adm, RARRAY_LEN( rb_struct_getmember(self,rb_intern("admins")) ) );
-  free_char_members(sgroup.sg_mem, RARRAY_LEN(  rb_struct_getmember(self,rb_intern("members")) ) );
+  free_char_members(sgroup.sg_adm, RARRAY_LEN( rb_iv_get(self, "@admins") ));
+  free_char_members(sgroup.sg_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));
 
   return Qtrue;
 }
@@ -92,7 +77,7 @@ VALUE setup_gshadow(struct sgrp *sgroup)
   if (!sgroup) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cGroup);
+  VALUE obj = rb_obj_alloc(rb_cGshadow);
 
   rb_ivar_set(obj, id_name, setup_safe_str(SGRP_NAME(sgroup)));
   rb_ivar_set(obj, id_passwd, setup_safe_str(sgroup->sg_passwd));

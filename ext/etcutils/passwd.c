@@ -1,4 +1,7 @@
 #include "etcutils.h"
+#include <errno.h>
+
+
 VALUE rb_cPasswd, rb_cShadow;
 
 static VALUE
@@ -42,7 +45,7 @@ VALUE user_putpwent(VALUE self, VALUE io)
 
   pwd.pw_passwd   = RSTRING_PTR(rb_ivar_get(self, id_passwd));
   pwd.pw_uid      = NUM2UIDT( rb_ivar_get(self,id_uid) );
-  pwd.pw_gid      = NUM2GIDT( rb_ivar_get(self,id_uid) );
+  pwd.pw_gid      = NUM2GIDT( rb_ivar_get(self,id_gid) );
   pwd.pw_gecos    = RSTRING_PTR(rb_iv_get(self, "@gecos"));
   pwd.pw_dir      = RSTRING_PTR(rb_iv_get(self, "@directory"));
   pwd.pw_shell    = RSTRING_PTR(rb_iv_get(self, "@shell"));
@@ -55,32 +58,27 @@ VALUE user_putpwent(VALUE self, VALUE io)
 
 VALUE user_putspent(VALUE self, VALUE io)
 {
-  struct spwd spasswd, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
+  struct spwd spasswd, *tmp_spwd;
   VALUE path = RFILE_PATH(io);
-  long i;
+  long i=0;
+
+  spasswd.sp_namp  = RSTRING_PTR(rb_ivar_get(self, id_name));
 
   ensure_file(io);
-
   rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetspent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(tmp_str->sp_namp,StringValuePtr( name )) )
+  while ( (tmp_spwd = fgetspent(RFILE_FPTR(io))) )
+    if ( !strcmp(tmp_spwd->sp_namp, spasswd.sp_namp) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       tmp_str->sp_namp,  StringValuePtr(path), i );
-  }
+	       tmp_spwd->sp_namp,  StringValuePtr(path), ++i );
 
-  spasswd.sp_namp   = StringValueCStr( name );
-  spasswd.sp_pwdp   = StringValueCStr( passwd );
-  spasswd.sp_lstchg = FIX2INT( rb_struct_getmember(self,rb_intern("last_change")) );
-  spasswd.sp_min    = FIX2INT( rb_struct_getmember(self,rb_intern("min_change")) );
-  spasswd.sp_max    = FIX2INT( rb_struct_getmember(self,rb_intern("max_change")) );
-  spasswd.sp_warn   = FIX2INT( rb_struct_getmember(self,rb_intern("warn")) );
-  spasswd.sp_inact  = FIX2INT( rb_struct_getmember(self,rb_intern("inactive")) );
-  spasswd.sp_expire = FIX2INT( rb_struct_getmember(self,rb_intern("expire")) );
-  spasswd.sp_flag   = FIX2INT( rb_struct_getmember(self,rb_intern("flag")) );
+  spasswd.sp_pwdp   = RSTRING_PTR(rb_ivar_get(self, id_passwd));
+  spasswd.sp_lstchg = FIX2INT( rb_iv_get(self, "@last_pw_change") );
+  spasswd.sp_min    = FIX2INT( rb_iv_get(self, "@min_pw_age") );
+  spasswd.sp_max    = FIX2INT( rb_iv_get(self, "@max_pw_age") );
+  spasswd.sp_warn   = FIX2INT( rb_iv_get(self, "@warning") );
+  spasswd.sp_inact  = FIX2INT( rb_iv_get(self, "@inactive") );
+  spasswd.sp_expire = FIX2INT( rb_iv_get(self, "@expire") );
+  spasswd.sp_flag   = FIX2INT( rb_iv_get(self, "@flag") );
 
   if ( (putspent(&spasswd, RFILE_FPTR(io))) )
     eu_errno(path);
@@ -88,23 +86,23 @@ VALUE user_putspent(VALUE self, VALUE io)
   return Qtrue;
 }
 
-VALUE setup_shadow(struct spwd *shadow)
+VALUE setup_shadow(struct spwd *spasswd)
 {
-  if (!shadow) errno  || (errno = 61); // ENODATA
+  if (!spasswd) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
 
   VALUE obj = rb_obj_alloc(rb_cShadow);
 
-  rb_ivar_set(obj, id_name, setup_safe_str(shadow->sp_namp));
-  rb_ivar_set(obj, id_passwd, setup_safe_str(shadow->sp_pwdp));
+  rb_ivar_set(obj, id_name, setup_safe_str(spasswd->sp_namp));
+  rb_ivar_set(obj, id_passwd, setup_safe_str(spasswd->sp_pwdp));
 
-  rb_iv_set(obj, "@last_pw_change", INT2FIX(shadow->sp_lstchg));
-  rb_iv_set(obj, "@min_pw_age", INT2FIX(shadow->sp_min));
-  rb_iv_set(obj, "@max_pw_age", INT2FIX(shadow->sp_max));
-  rb_iv_set(obj, "@warning", INT2FIX(shadow->sp_warn));
-  rb_iv_set(obj, "@inactive", INT2FIX(shadow->sp_inact));
-  rb_iv_set(obj, "@expire", INT2FIX(shadow->sp_expire));
-  rb_iv_set(obj, "@flag", INT2FIX(shadow->sp_flag));
+  rb_iv_set(obj, "@last_pw_change", INT2FIX(spasswd->sp_lstchg));
+  rb_iv_set(obj, "@min_pw_age", INT2FIX(spasswd->sp_min));
+  rb_iv_set(obj, "@max_pw_age", INT2FIX(spasswd->sp_max));
+  rb_iv_set(obj, "@warning", INT2FIX(spasswd->sp_warn));
+  rb_iv_set(obj, "@inactive", INT2FIX(spasswd->sp_inact));
+  rb_iv_set(obj, "@expire", INT2FIX(spasswd->sp_expire));
+  rb_iv_set(obj, "@flag", INT2FIX(spasswd->sp_flag));
 
   return obj;
 }
