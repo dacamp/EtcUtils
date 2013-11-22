@@ -5,7 +5,7 @@ Gem::Specification.new do |spec|
   spec.name          = "etcutils"
   spec.version       = "0.1.1"
   spec.author        = "David Campbell"
-  spec.email         = "dcampbell@nestlabs.com"
+  spec.email         = "david@mrcmapbell.org"
   spec.description   = "Ruby Extension that allows for reads and writes to the /etc user db."
   spec.summary       = %q{This gem is specific to *nix environments.  It's a rewrite of libshadow-ruby allowing for reads and writes to passwd,shadow,group, and gshadow /etc files.  There are probably still bugs, so use at your own risk.}
   spec.homepage      = "https://github.com/dacamp/etcutils"
