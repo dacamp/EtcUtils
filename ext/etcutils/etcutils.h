@@ -25,10 +25,13 @@
 #include <gshadow.h>
 #elif defined(HAVE_GSHADOW__H)
 #include <gshadow_.h>
+#define HAVE_GSHADOW_H 1
 #endif
 
+#ifdef HAVE_GSHADOW_H
 #ifndef GSHADOW
 #define GSHADOW "/etc/gshadow"
+#endif
 #endif
 
 #ifdef HAVE_GRP_H
@@ -81,8 +84,6 @@ extern VALUE rb_cGshadow;
 /* EU helper functions */
 extern uid_t uid_global;
 extern gid_t gid_global;
-
-VALUE rb_obj_inspect(VALUE obj);
 
 extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
@@ -142,6 +143,8 @@ extern VALUE user_putspent(VALUE self, VALUE io);
 extern VALUE group_putgrent(VALUE self, VALUE io);
 extern VALUE group_putsgent(VALUE self, VALUE io);
 /* END EU Group functions */
+
+extern VALUE rb_ary_uniq_bang(VALUE ary);
 
 extern void Init_etcutils_main();
 extern void Init_etcutils_user();

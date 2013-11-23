@@ -125,10 +125,22 @@ void ensure_file(VALUE io)
   Check_Type(io, T_FILE);
 }
 
+/*   Great way to validate (s)group members/admins
+void confirm_members(char ** mem)
+{
+  char *name;
+
+  while(name = *mem++)
+    if (!getpwnam(name))
+      rb_raise(rb_eArgError,
+	       "%s was not found in '%s'", name, PASSWD);
+}
+*/
+
 void free_char_members(char ** mem, int c)
 {
   if (NULL != mem) {
-    int i=0;
+    int i;
     for (i=0; i<c+1 ; i++) free(mem[i]);
     free(mem);
   }
@@ -137,23 +149,32 @@ void free_char_members(char ** mem, int c)
 char** setup_char_members(VALUE ary)
 {
   char ** mem;
-  VALUE temp;
-  long i;
+  VALUE tmp,last;
+  long i,off;
   Check_Type(ary,T_ARRAY);
 
   mem = malloc((RARRAY_LEN(ary) + 1)*sizeof(char**));
   if (mem == NULL)
     rb_memerror();
 
-  for (i = 0; i < RARRAY_LEN(ary); i++) {
-    temp = rb_obj_as_string(RARRAY_PTR(ary)[i]);
-    StringValueCStr(temp);
-    mem[i] = malloc((RSTRING_LEN(temp))*sizeof(char*));;
+  rb_ary_sort_bang(ary);
+  last = rb_str_new2("");
+  off = 0;
 
-    if (mem[i]  == NULL) rb_memerror();
-    strcpy(mem[i], RSTRING_PTR(temp));
+  for (i = 0; i < RARRAY_LEN(ary); i++) {
+    tmp = rb_obj_as_string(RARRAY_PTR(ary)[i]);
+    if ( (rb_str_cmp(tmp, last)) ) {
+      StringValueCStr(tmp);
+      mem[i-off] = malloc((RSTRING_LEN(tmp))*sizeof(char*));;
+
+      if (mem[i-off]  == NULL) rb_memerror();
+      strcpy(mem[i-off], RSTRING_PTR(tmp));
+    } else
+      off++;
+
+    last = tmp;
   }
-  mem[i] = NULL;
+  mem[i-off] = NULL;
 
   return mem;
 }
@@ -301,38 +322,40 @@ VALUE eu_sgetspent(VALUE self, VALUE nam)
   return setup_shadow(shadow);
 }
 
+
+// name:passwd:gid:members
 VALUE eu_sgetgrent(VALUE self, VALUE nam)
 {
-  VALUE ary, gid, mem;
-  struct group *grp;
-  struct passwd *pwd;
-
-  SafeStringValue(nam);
-  ary = rb_str_split(nam,":");
-
+  VALUE ary, obj, tmp;
+  struct group grp;
   eu_setgrent(self);
   eu_setpwent(self);
+
+  ary = rb_str_split(nam,":");
   nam = rb_ary_entry(ary,0);
-  SafeStringValue(nam);
-  if (grp = getgrnam( StringValuePtr(nam) ))
-    rb_ary_store(ary, 2, GIDT2NUM(grp->gr_gid) );
-  else if (pwd = getpwnam( StringValuePtr(nam) ))
-    rb_ary_store(ary, 2, GIDT2NUM(pwd->pw_gid) );
-  else  {
-    gid = rb_ary_entry(ary,2);
-    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      gid = next_gid(0, 0, self);
-    rb_ary_store(ary, 2, rb_Integer( gid ) );
+
+  if (NIL_P(obj = eu_getgrp(self, nam))) {
+    grp.gr_name   = StringValuePtr(nam);
+
+    if ( NIL_P(tmp = rb_ary_entry(ary,1)) || RSTRING_LEN(tmp) == 0 )
+      tmp = rb_str_new2("x");
+
+    grp.gr_passwd = StringValuePtr(tmp);
+
+    if ( NIL_P(tmp = rb_ary_entry(ary,2)) || RSTRING_LEN(tmp) == 0 )
+      tmp = GIDT2NUM(0);
+
+    tmp = rb_Integer( tmp );
+    grp.gr_gid = NUM2GIDT(next_gid(1, &tmp, self));
+
+    if ( (NIL_P(tmp = rb_ary_entry(ary,3))) )
+      tmp = rb_str_new2("");
+
+    grp.gr_mem = setup_char_members( rb_str_split(tmp,",") );
+    obj = setup_group(&grp);
   }
 
-  if (NIL_P(mem = rb_ary_entry(ary,3)))
-    mem = rb_ary_new();
-  else
-    mem = rb_str_split(mem,",");
-
-  rb_ary_store(ary, 3, mem);
-
-  return rb_struct_alloc(self, ary);
+  return obj;
 }
 
 VALUE eu_sgetsgent(VALUE self, VALUE nam)
@@ -841,6 +864,7 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"find_grp",eu_getgrp,1);
   rb_define_module_function(mEtcUtils,"setgrent",eu_setgrent,0);
   rb_define_module_function(mEtcUtils,"endgrent",eu_endgrent,0);
+  rb_define_module_function(mEtcUtils,"sgetgrent",eu_sgetgrent,1);
   rb_define_module_function(mEtcUtils,"fgetgrent",eu_fgetgrent,1);
   rb_define_module_function(mEtcUtils,"putgrent",eu_putgrent,2);
   // Backward compatibility

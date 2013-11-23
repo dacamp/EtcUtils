@@ -66,6 +66,8 @@ See 'http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=699089' for more.\n" do
 
   def test_sgetXXent
     assert sgetspent(find_spwd('root').to_entry).name.eql? "root"
-    #assert sgetsgent(find_sgrp('root').to_entry).name.eql? "root"
+    assert sgetsgent(find_sgrp('root').to_entry).name.eql? "root"
+    assert sgetgrent(find_grp('root').to_entry).name.eql? "root"
+    assert sgetpwent(find_pwd('root').to_entry).name.eql? "root"
   end
 end
