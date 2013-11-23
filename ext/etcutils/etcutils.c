@@ -306,23 +306,28 @@ etcutils_sgetpwent(VALUE self, VALUE nam)
     rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_gid) );
   } else {
     uid = rb_ary_entry(ary,2);
-    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 )
-      uid = next_uid(0, 0, self);
-    else if (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) {
+    // If there actually is a UID and that UID isn't already assigned
+    if ( (!( NIL_P(uid) || RSTRING_LEN(uid) == 0 )) &&  (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) ) {
       tmp = rb_Integer( uid );
-      uid = next_uid(1, &tmp, self);
+      next_uid(1, &tmp, self);
     }
+    uid = next_uid(0, 0, self);
 
     gid = rb_ary_entry(ary,3);
     if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      if ( (grp = getgrnam( StringValuePtr(nam) )) ) {
+      if ( (grp = getgrnam( StringValuePtr(nam) )) ) { // Found a group with the same name
 	gid = GIDT2NUM(grp->gr_gid);
+	// See if the UID with value GID is available
+	// If so, we can keep a little sanity and match the GID and UID
 	tmp = uid;
-	uid = next_uid(1, &gid, self);
-	next_uid(1, &tmp, self);
-	next_uid(0, 0, self);
-      } else
-	gid = next_gid(1, &uid, self);
+	next_uid(1, &gid, self);
+	uid = next_uid(0, 0, self);
+	if (! uid == gid)
+	  uid = tmp;
+      } else {
+	next_gid(1, &uid, self);
+	gid = next_gid(0, 0, self);
+      }
     else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) )
       gid = GIDT2NUM(grp->gr_gid);
     else
