@@ -99,7 +99,7 @@ etcutils_errno(VALUE str)
 static void
 ensure_file(VALUE io)
 {
-  Check_Type(io, T_FILE);
+  rb_io_check_initialized(RFILE(io)->fptr);
 }
 
 static void
