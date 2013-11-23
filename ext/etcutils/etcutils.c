@@ -994,6 +994,7 @@ void Init_etcutils()
 {
   VALUE mEtcUtils = rb_define_module("EtcUtils");
   rb_extend_object(mEtcUtils, rb_mEnumerable);
+  rb_define_const(mEtcUtils,"VERSION", setup_safe_str(EUVERSION));
 
   // EtcUtils Constants
   rb_define_global_const("PASSWD", setup_safe_str(PASSWD));
