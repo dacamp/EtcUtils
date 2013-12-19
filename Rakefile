@@ -12,4 +12,6 @@ Rake::TestTask.new(:test) do |t|
   t.test_files = FileList['tests/**/test_*.rb']
 end
 
-Rake::ExtensionTask.new('etcutils')
+Rake::ExtensionTask.new 'etcutils' do |ext|
+  ext.lib_dir = "lib/etcutils"
+end
