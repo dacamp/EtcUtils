@@ -37,16 +37,19 @@ See 'http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=699089' for more.\n" do
 
   SG_MAP.keys.each do |xx|
     define_method("test_fget#{xx}ent_cp#{SG_MAP[xx][:file].gsub('/','_')}")  {
-      tmp_fn = "/tmp/_fget#{xx}ent_test"
-      assert_nothing_raised do
-        fh = File.open(SG_MAP[xx][:file], 'r')
-        File.open(tmp_fn, File::RDWR|File::CREAT, 0600) { |tmp_fh|
-          while ( ent = EtcUtils.send("fget#{xx}ent", fh) )
-            ent.fputs(tmp_fh)
-          end
-        }
-        fh.close
-        assert FileUtils.compare_file(SG_MAP[xx][:file], tmp_fn) == true
+      begin
+        tmp_fn = "/tmp/_fget#{xx}ent_test"
+        assert_nothing_raised do
+          fh = File.open(SG_MAP[xx][:file], 'r')
+          File.open(tmp_fn, File::RDWR|File::CREAT, 0600) { |tmp_fh|
+            while ( ent = EtcUtils.send("fget#{xx}ent", fh) )
+              ent.fputs(tmp_fh)
+            end
+          }
+          fh.close
+          assert FileUtils.compare_file(SG_MAP[xx][:file], tmp_fn) == true, "DIFF FAILED: #{SG_MAP[xx][:file]} <=> #{tmp_fn}\n" << `diff #{SG_MAP[xx][:file]} #{tmp_fn}`
+        end
+      ensure
         FileUtils.remove_file(tmp_fn);
       end
     }
