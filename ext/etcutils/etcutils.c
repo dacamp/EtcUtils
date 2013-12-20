@@ -258,17 +258,142 @@ VALUE eu_endgrent(VALUE self)
 #endif
   return Qnil;
 }
+
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * CURRENT USER
+ *   iff one of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ */
+VALUE eu_parsecurrent(VALUE str, VALUE ary)
+{
+  struct passwd *pwd = getpwnam( StringValuePtr(str) );
+
+  // Password
+  str = rb_ary_entry(ary,1);
+  if ((RSTRING_LEN(str) > 0) && strcmp(pwd->pw_passwd, StringValueCStr(str)))
+    pwd->pw_passwd = StringValuePtr(str);
+
+  // UID
+  str = rb_ary_entry(ary,2);
+  if ((RSTRING_LEN(str) > 0) && (INT2FIX(pwd->pw_passwd) != rb_Integer( str ) ))
+    printf("UID: %s\n", StringValuePtr(str));
+    
+
+  return setup_passwd(pwd);  
+}
+
+/* INPUT Examples:
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ * CURRENT USER
+ *   iff one of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ * NEW USER
+ *   if UID/GID are empty
+ *     - next_uid/next_gid
+ *   else
+ *     - Test VALUE availability
+ *   then
+ *     - Populate UID/GID
+ *   if GECOS, HOMEDIR, SHELL is empty
+ *     - GECOS defaults to USERNAME
+ *     - Assign default VALUE (Need to set config VALUES)
+ *   if PASSWORD is empty
+ *      - raise Error
+ *
+ */
+VALUE eu_parsenew(VALUE str, VALUE ary)
+{
+  return Qnil;
+}
 /* End of set/end syscalls */
 
-VALUE eu_sgetpwent(VALUE self, VALUE nam)
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ * UNIVERSAL BEHAVIOR
+ *   if USERNAME empty
+ *      - raise error
+ * CURRENT USER
+ *   iff one of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ * NEW USER
+ *   if UID/GID are empty
+ *     - next_uid/next_gid
+ *   else
+ *     - Test VALUE availability
+ *   then
+ *     - Populate UID/GID
+ *   if GECOS, HOMEDIR, SHELL is empty
+ *     - GECOS defaults to USERNAME
+ *     - Assign default VALUE (Need to set config VALUES)
+ *   if PASSWORD is empty
+ *      - raise Error
+ *
+ */
+VALUE eu_sgetpwent(VALUE self, VALUE str)
+{
+  VALUE ary;
+
+  eu_setpwent(self);
+  eu_setgrent(self);
+
+  ary = rb_str_split(str, ":");
+  str = rb_ary_entry(ary,0);
+
+  if (RSTRING_LEN(str) == 0)
+    rb_raise(rb_eArgError,"Username must be present.");
+
+  if (getpwnam( StringValuePtr(str) ))
+    return eu_parsecurrent(str, ary);
+  else
+    return eu_parsenew(str, ary);
+}
+
+VALUE eu_parsepw(VALUE self, VALUE nam)
 {
   VALUE ary, uid, gid, tmp;
   int mal = 0;
   struct passwd *pwd;
   struct group  *grp;
-
-  eu_setpwent(self);
-  eu_setgrent(self);
 
   SafeStringValue(nam);
   ary = rb_str_split(nam,":");
@@ -670,9 +795,8 @@ pwd_iterate(void)
   struct passwd *pwd;
 
   setspent();
-  while ( (pwd = getpwent()) ) {
+  while ( (pwd = getpwent()) )
     rb_yield(setup_passwd(pwd));
-  }
   return Qnil;
 }
 
