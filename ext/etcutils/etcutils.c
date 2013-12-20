@@ -86,7 +86,7 @@ VALUE iv_get_time(VALUE self, char *name)
 
   if (NUM2INT(e) < 0)
     return Qnil;
-  
+
   time_t t = NUM2INT(e) * 86400;
   return rb_time_new(t, 0);
 }
@@ -263,51 +263,101 @@ VALUE eu_endgrent(VALUE self)
 VALUE eu_sgetpwent(VALUE self, VALUE nam)
 {
   VALUE ary, uid, gid, tmp;
+  int mal = 0;
   struct passwd *pwd;
   struct group  *grp;
 
   eu_setpwent(self);
   eu_setgrent(self);
 
+  SafeStringValue(nam);
   ary = rb_str_split(nam,":");
   nam = rb_ary_entry(ary,0);
+
+  SafeStringValue(nam);
+  // #<EtcUtils::Passwd:0x00000001c6ce28 @name="bin", @passwd="x", @uid=2, @gid=2, @gecos="bin", @directory="/bin", @shell="/bin/sh">
   if (!(pwd = getpwnam( StringValuePtr(nam) ))) {
-    pwd->pw_name   = StringValuePtr(nam);
-    tmp = rb_ary_entry(ary,1);
-    pwd->pw_passwd = StringValuePtr(tmp);
-
-    uid = rb_ary_entry(ary,2);
-    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 )
-      uid = next_uid(0, 0, self);
-    else if (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) {
-      tmp = rb_Integer( uid );
-      uid = next_uid(1, &tmp, self);
-    }
-
-    gid = rb_ary_entry(ary,3);
-    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      if ( (grp = getgrnam( StringValuePtr(nam) )) ) {
-	gid = GIDT2NUM(grp->gr_gid);
-	tmp = uid;
-	uid = next_uid(1, &gid, self);
-	next_uid(1, &tmp, self);
-	next_uid(0, 0, self);
-      } else
-	gid = next_gid(1, &uid, self);
-    else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) )
-      gid = GIDT2NUM(grp->gr_gid);
-    else
-      rb_raise(rb_eArgError,
-	       "Group ID %ld does not exist!", gid);
-
-    pwd->pw_uid = uid;
-    pwd->pw_gid = gid;
-    pwd->pw_gecos = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,4))) );
-    pwd->pw_dir   = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,5))) );
-    pwd->pw_shell = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,5))) );
+    pwd = malloc(sizeof *pwd);
+    mal = 1;
+    pwd->pw_name = StringValuePtr(nam);
   }
 
-  return setup_passwd(pwd);
+  printf("NAME: %s\n", pwd->pw_name);
+
+  tmp = rb_ary_entry(ary,1);
+  if (NIL_P(tmp) || RSTRING_LEN(tmp) == 0)
+    tmp = "*";
+  pwd->pw_passwd = StringValuePtr(tmp);
+
+  uid = rb_ary_entry(ary,2);
+  if (! (NIL_P(uid) || RSTRING_LEN(uid) == 0) )
+    tmp = rb_Integer( uid );
+
+  // If there actually is a UID and that UID isn't already assigned
+  // STILL BROKEN
+  if (pwd->pw_uid && FIXNUM_P(tmp))    
+    if ( ((*pwd).pw_uid != NUM2GIDT(tmp) ) ) {
+      printf("TMP: %d", pwd->pw_uid);
+      next_uid(1, &tmp, self);
+      uid = next_uid(0, 0, self);
+    } else
+      uid = UIDT2NUM(pwd->pw_uid);
+  else {
+    if (FIXNUM_P(tmp))
+      next_uid(1, &tmp, self);
+    uid = next_uid(0, 0, self);
+  }
+
+  gid = rb_ary_entry(ary,3);
+  printf("GID: %s\n", StringValuePtr(gid));
+  if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 ) {
+    if ( (grp = getgrnam( StringValuePtr(nam) )) ) { // Found a group with the same name
+      gid = GIDT2NUM(grp->gr_gid);
+      // OPTIMIZE
+      // See if the UID with value GID is available
+      // If so, we can keep a little sanity and match the GID and UID
+      if (! uid == gid) {
+	tmp = uid;
+	next_uid(1, &gid, self);
+	uid = next_uid(0, 0, self);
+	// Restore the original UID and set the global counter back to
+	// its previous value.
+	if (! uid == gid) {
+	  next_uid(1, &tmp, self);
+	  uid = tmp;
+	}
+      }
+    } else {
+      next_gid(1, &uid, self);
+      gid = next_gid(0, 0, self);
+      printf("NO GROUP WAS FOUND: %s %d", grp->gr_name, grp->gr_gid);
+    }
+  }
+  else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) ) {
+    printf("GROUP WAS FOUND: %s %d\n", grp->gr_name, grp->gr_gid);
+    gid = GIDT2NUM(grp->gr_gid);
+  }
+  else
+    rb_raise(rb_eArgError,
+	     "Group ID %d does not exist!", NUM2GIDT( rb_Integer(gid) ));
+
+  pwd->pw_uid   = NUM2UIDT(uid);
+  pwd->pw_gid   = NUM2GIDT(gid);
+
+  tmp = rb_ary_entry(ary,4);
+  pwd->pw_gecos = StringValuePtr( tmp );
+
+  tmp = rb_ary_entry(ary,5);
+  pwd->pw_dir   = StringValuePtr( tmp );
+
+  tmp = rb_ary_entry(ary,6);
+  pwd->pw_shell = StringValuePtr( tmp );
+
+  tmp = setup_passwd(pwd);
+
+  if (mal)
+    free(pwd);
+  return tmp;  
 }
 
 VALUE eu_sgetspent(VALUE self, VALUE nam)
