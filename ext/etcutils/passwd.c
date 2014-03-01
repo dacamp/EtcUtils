@@ -1,6 +1,6 @@
 #include "etcutils.h"
 #include <errno.h>
-
+#include <stdio.h>
 
 VALUE rb_cPasswd, rb_cShadow;
 
@@ -31,12 +31,13 @@ user_set_expire(VALUE self, VALUE v)
 VALUE user_putpwent(VALUE self, VALUE io)
 {
   struct passwd pwd, *tmp_pwd;
+  ensure_file(io);
+
   VALUE path = RFILE_PATH(io);
   long i = 0;
 
-  pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  ensure_file(io);
+  pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
   rewind(RFILE_FPTR(io));
   while ( (tmp_pwd = fgetpwent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_pwd->pw_name, pwd.pw_name) )
@@ -54,6 +55,11 @@ VALUE user_putpwent(VALUE self, VALUE io)
     eu_errno(path);
 
   return Qtrue;
+}
+
+VALUE user_pw_entry(VALUE self)
+{
+  return eu_to_entry(self, user_putpwent);
 }
 
 VALUE user_putspent(VALUE self, VALUE io)
@@ -84,6 +90,11 @@ VALUE user_putspent(VALUE self, VALUE io)
     eu_errno(path);
 
   return Qtrue;
+}
+
+VALUE user_sp_entry(VALUE self)
+{
+  return eu_to_entry(self, user_putspent);
 }
 
 VALUE setup_shadow(struct spwd *spasswd)
@@ -139,7 +150,7 @@ void Init_etcutils_user()
   rb_define_attr(rb_cPasswd, "directory", 1, 1);
   rb_define_attr(rb_cPasswd, "shell", 1, 1);
 
-  rb_define_method(rb_cPasswd, "to_entry", eu_to_entry,0);
+  rb_define_method(rb_cPasswd, "to_entry", user_pw_entry,0);
   rb_define_method(rb_cPasswd, "fputs", user_putpwent, 1);
 
   rb_define_singleton_method(rb_cPasswd,"get",eu_getpwent,0);
@@ -163,8 +174,8 @@ void Init_etcutils_user()
   rb_define_method(rb_cShadow, "expire_date", user_get_expire, 0);
   rb_define_method(rb_cShadow, "expire_date=", user_set_expire, 1);
 
+  rb_define_method(rb_cShadow, "to_entry", user_sp_entry,0);
   rb_define_method(rb_cShadow, "fputs", user_putspent, 1);
-  rb_define_method(rb_cShadow, "to_entry", eu_to_entry,0);
 
   rb_define_singleton_method(rb_cShadow,"get",eu_getspent,0);
   rb_define_singleton_method(rb_cShadow,"each",eu_getspent,0);

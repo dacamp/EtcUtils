@@ -93,7 +93,9 @@ VALUE iv_get_time(VALUE self, char *name)
 
 VALUE iv_set_time(VALUE self, VALUE v, char *name)
 {
-  struct timeval t = rb_time_timeval(v);
+  struct timeval t;
+  t.tv_sec = rb_time_timeval(v);
+
   long int d = ((long)t.tv_sec / 86400);
 
   if (FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
@@ -745,29 +747,31 @@ VALUE eu_getsgent(VALUE self)
   return Qnil;
 }
 
-VALUE eu_to_entry(VALUE self)
+VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 {
-  VALUE v, ary = rb_ary_new();
-  long i;
+  VALUE line;
+  VALUE rb_io;
+  char filename[] = "/tmp/etc_utilsXXXXXX";
+  int fd = mkstemp(filename);
 
-  for (i=0; i<RSTRUCT_LEN(self); i++) {
-    v = RSTRUCT_PTR(self)[i];
-    if (NIL_P(v))
-      v = setup_safe_str("");
+  if ( fd == -1 )
+    rb_raise(rb_eIOError,
+	     "Error creating temp file: %s", strerror(errno));
 
-    if (TYPE(v) == T_ARRAY)
-      rb_ary_push(ary, rb_ary_join( (v), setup_safe_str(",") ));
-    else if (TYPE(v) == T_STRING)
-      rb_ary_push(ary,v);
-    else if (TYPE(v) == T_FIXNUM) {
-      if (FIX2INT(v) < 0 )
-	v = setup_safe_str("");
-      rb_ary_push(ary,v);
-    } else
-      Check_Type(v, T_STRING); // Or Array, but testing one is easier
-  }
+  rb_io = rb_file_open(filename,"w+");
+  user_to(self, rb_io);
+  rewind(RFILE_FPTR(rb_io));
+  line = rb_io_gets(rb_io);
 
-  return rb_ary_join(ary, setup_safe_str(":"));
+  if ( close(fd) < 0)
+    rb_raise(rb_eIOError, "Error closing temp file: %s", strerror(errno));
+
+  rb_io_close(rb_io);
+
+  if ( unlink(filename) < 0 )
+    rb_raise(rb_eIOError, "Error unlinking temp file: %s", strerror(errno));
+
+  return line;
 }
 
 static VALUE

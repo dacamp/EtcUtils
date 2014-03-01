@@ -28,6 +28,11 @@ VALUE group_putgrent(VALUE self, VALUE io)
   return Qtrue;
 }
 
+VALUE group_gr_entry(VALUE self)
+{
+  return eu_to_entry(self, group_putgrent);
+}
+
 VALUE group_putsgent(VALUE self, VALUE io)
 {
   struct sgrp sgroup, *tmp_sgrp;
@@ -54,6 +59,11 @@ VALUE group_putsgent(VALUE self, VALUE io)
   free_char_members(sgroup.sg_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));
 
   return Qtrue;
+}
+
+VALUE group_sg_entry(VALUE self)
+{
+  return eu_to_entry(self, group_putsgent);
 }
 
 VALUE setup_group(struct group *grp)
@@ -120,8 +130,8 @@ void Init_etcutils_group()
   rb_define_singleton_method(rb_cGroup,"end",eu_endgrent,0);
   rb_define_singleton_method(rb_cGroup,"each",eu_getgrent,0);
 
-  rb_define_method(rb_cGroup, "fputs", group_putgrent, 1);
-  rb_define_method(rb_cGroup, "to_entry", eu_to_entry,0);
+  rb_define_method(rb_cGroup, "fputs", group_putgrent,1);
+  rb_define_method(rb_cGroup, "to_entry", group_gr_entry,0);
 
   rb_define_attr(rb_cGshadow, "name", 1, 1);
   rb_define_attr(rb_cGshadow, "passwd", 1, 1);
@@ -135,5 +145,5 @@ void Init_etcutils_group()
   rb_define_singleton_method(rb_cGshadow,"end",eu_endsgent,0);
   rb_define_singleton_method(rb_cGshadow,"each",eu_getsgent,0);
   rb_define_method(rb_cGshadow, "fputs", group_putsgent, 1);
-  rb_define_method(rb_cGshadow, "to_entry", eu_to_entry,0);
+  rb_define_method(rb_cGshadow, "to_entry", group_sg_entry,0);
 }

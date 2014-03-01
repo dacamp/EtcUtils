@@ -73,7 +73,6 @@
 #endif
 
 extern ID id_name, id_passwd, id_uid, id_gid;
-
 extern VALUE mEtcUtils;
 
 extern VALUE rb_cPasswd;
@@ -106,7 +105,7 @@ extern VALUE setup_group(struct group *grp);
 extern VALUE setup_gshadow(struct sgrp *sgroup);
 #endif
 
-extern VALUE eu_to_entry(VALUE self);
+extern VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE));
 
 extern VALUE eu_setpwent(VALUE self);
 extern VALUE eu_setspent(VALUE self);
