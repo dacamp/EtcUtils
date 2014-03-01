@@ -3,8 +3,10 @@
 
 #ifdef HAVE_RUBY_IO_H
 #include "ruby/io.h"
+#define RTIME_VAL(x) (x)
 #else
 #include "rubyio.h"
+#define RTIME_VAL(x) (x.tv_sec)
 #endif
 
 #ifdef HAVE_SHADOW_H

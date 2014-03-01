@@ -45,7 +45,7 @@ VALUE next_uid(int argc, VALUE *argv, VALUE self)
   else
     req = NUM2UIDT(i);
 
-  if ((req < 0) || (req > 65533))
+  if ( req > 65533 )
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
   while ( getpwuid(req) ) req++;
 
@@ -68,7 +68,7 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
   else
     req = NUM2GIDT(i);
 
-  if ((req < 0) || (req > 65533))
+  if ( req > 65533 )
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
   while ( getgrgid(req) ) req++;
 
@@ -82,21 +82,24 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
 
 VALUE iv_get_time(VALUE self, char *name)
 {
-  VALUE e = rb_iv_get(self, name);
+  VALUE e;
+  time_t t;
+  e = rb_iv_get(self, name);
 
   if (NUM2INT(e) < 0)
     return Qnil;
   
-  time_t t = NUM2INT(e) * 86400;
+  t = NUM2INT(e) * 86400;
   return rb_time_new(t, 0);
 }
 
 VALUE iv_set_time(VALUE self, VALUE v, char *name)
 {
   struct timeval t;
-  t.tv_sec = rb_time_timeval(v);
+  long int d;
 
-  long int d = ((long)t.tv_sec / 86400);
+  RTIME_VAL(t) = rb_time_timeval(v);
+  d = ((long)t.tv_sec / 86400);
 
   if (FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
     d = NUM2INT(v);
