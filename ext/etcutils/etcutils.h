@@ -12,6 +12,9 @@
 #ifndef SHADOW
 #define SHADOW "/etc/shadow"
 #endif
+#define PW_DEFAULT_PASS setup_safe_str("x")
+#else
+#define PW_DEFAULT_PASS setup_safe_str("*")
 #endif
 
 #ifdef HAVE_PWD_H
@@ -41,6 +44,10 @@
 #endif
 #endif
 
+#ifndef DEFAULT_SHELL
+#define DEFAULT_SHELL "/bin/bash"
+#endif
+
 #ifdef HAVE_ST_SG_NAMP
 #define SGRP_NAME(s) (s)->sg_namp
 #else
@@ -57,6 +64,10 @@
 #define RFILE_FPTR(x) rb_io_stdio_file( RFILE(x)->fptr )
 #else
 #define RFILE_FPTR(x) (RFILE(x)->fptr)->f
+#endif
+
+#ifndef RSTRING_BLANK_P
+#define RSTRING_BLANK_P(x) (NIL_P(x) || RSTRING_LEN(x) == 0)
 #endif
 
 #ifndef UIDT2NUM
@@ -84,6 +95,8 @@ extern VALUE rb_cGshadow;
 /* EU helper functions */
 extern uid_t uid_global;
 extern gid_t gid_global;
+extern VALUE assigned_uids;
+extern VALUE assigned_gids;
 
 extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
