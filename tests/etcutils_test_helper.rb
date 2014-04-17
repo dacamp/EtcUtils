@@ -3,6 +3,6 @@ $:.unshift File.dirname(__FILE__) + "/../lib"
 require 'test/unit'
 require 'etcutils'
 
-$root = EU.me.uid.zero?
+$eu_user = EtcUtils.me.uid.zero? ? "root" : "user"
 
 class Test::Unit::TestCase; include EtcUtils; end

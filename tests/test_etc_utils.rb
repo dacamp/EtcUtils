@@ -2,13 +2,11 @@ require 'etcutils_test_helper'
 
 class EtcUtilsTest < Test::Unit::TestCase
   SG_MAP = Hash.new.tap do |h|
-    if $root
-      h[:sp] = { :file => SHADOW,  :ext => 'wd' }
-      h[:sg] = { :file => GSHADOW, :ext => 'rp' }
-    end
     h[:pw] = { :file => PASSWD,  :ext => 'd'  }
     h[:gr] = { :file => GROUP,   :ext => 'p'  }
   end
+
+  require "#{$eu_user}/etc_utils"
 
   def test_constants
     assert_equal(EtcUtils, EU)
@@ -23,18 +21,9 @@ class EtcUtilsTest < Test::Unit::TestCase
       end
     end
 
+    assert_equal(EU::Gshadow, EU::GShadow)
     assert_equal(EU::SHELL, '/bin/bash')
     assert_equal(EU.me.uid, EU.getlogin.uid)
-  end
-
-  def test_nsswitch_conf_gshadow
-    assert_block "\n#{'*' * 75}
-nsswitch.conf may be misconfigured. Consider adding the below to /etc/nsswitch.conf.
-gshadow:\tfiles
-See 'http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=699089' for more.\n" do
-      setsgent
-      !!getsgent
-    end
   end
 
   SG_MAP.keys.each do |xx|
@@ -70,8 +59,6 @@ See 'http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=699089' for more.\n" do
   end
 
   def test_sgetXXent
-    assert sgetspent(find_spwd('root').to_entry).name.eql? "root"
-    assert sgetsgent(find_sgrp('root').to_entry).name.eql? "root"
     assert sgetgrent(find_grp('root').to_entry).name.eql? "root"
     assert sgetpwent(find_pwd('root').to_entry).name.eql? "root"
   end
