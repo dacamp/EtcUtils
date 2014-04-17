@@ -1,28 +1,30 @@
 require 'etcutils_test_helper'
 
 class EtcUtilsTest < Test::Unit::TestCase
-  SG_MAP = {
-    :pw => { :file => PASSWD,  :ext => 'd'  },
-    :sp => { :file => SHADOW,  :ext => 'wd' },
-    :gr => { :file => GROUP,   :ext => 'p'  },
-    :sg => { :file => GSHADOW, :ext => 'rp' },
-  }
-
-  def test_locking
-    assert_block "Couldn't run a block inside of lock()" do
-      lock { assert locked? }
-      !locked?
+  SG_MAP = Hash.new.tap do |h|
+    if $root
+      h[:sp] = { :file => SHADOW,  :ext => 'wd' }
+      h[:sg] = { :file => GSHADOW, :ext => 'rp' }
     end
+    h[:pw] = { :file => PASSWD,  :ext => 'd'  }
+    h[:gr] = { :file => GROUP,   :ext => 'p'  }
   end
 
-  def test_locked_after_exception
-    assert_block "Files remained locked when an exception is raised inside of lock()" do
-      begin
-        lock { raise "foobar" }
-      rescue
-        !locked?
+  def test_constants
+    assert_equal(EtcUtils, EU)
+    assert_equal('1.0.0', EU::VERSION)
+
+    # User DB Files
+    [:passwd, :group, :shadow, :gshadow].each do |m|
+      a = m.to_s.downcase
+      if File.exists?(f = "/etc/#{a}")
+        assert_equal(eval("EU::#{m.upcase.to_s}"), f)
+        assert EU.send("has_#{a}?".to_sym), "EtcUtils.has_#{a}? should be true."
       end
     end
+
+    assert_equal(EU::SHELL, '/bin/bash')
+    assert_equal(EU.me.uid, EU.getlogin.uid)
   end
 
   def test_nsswitch_conf_gshadow
