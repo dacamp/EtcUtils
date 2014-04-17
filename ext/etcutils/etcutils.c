@@ -25,7 +25,7 @@
  SOFTWARE.
 
 ********************************************************************/
-
+#include <unistd.h>
 #include "etcutils.h"
 VALUE mEtcUtils;
 ID id_name, id_passwd, id_uid, id_gid;
@@ -85,7 +85,7 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
   return GIDT2NUM(req);
 }
 
-VALUE iv_get_time(VALUE self, char *name)
+VALUE iv_get_time(VALUE self, const char *name)
 {
   VALUE e;
   time_t t;
@@ -98,7 +98,7 @@ VALUE iv_get_time(VALUE self, char *name)
   return rb_time_new(t, 0);
 }
 
-VALUE iv_set_time(VALUE self, VALUE v, char *name)
+VALUE iv_set_time(VALUE self, VALUE v, const char *name)
 {
   struct timeval t;
   long int d;
@@ -951,15 +951,21 @@ eu_endXXent(VALUE self)
 void Init_etcutils()
 {
   mEtcUtils = rb_define_module("EtcUtils");
-  rb_extend_object(mEtcUtils, rb_mEnumerable);
 
   assigned_uids = rb_ary_new();
   assigned_gids = rb_ary_new();
 
   rb_cPasswd  = rb_define_class_under(mEtcUtils,"Passwd",rb_cObject);
+  rb_extend_object(rb_cPasswd, rb_mEnumerable);
+
   rb_cShadow  = rb_define_class_under(mEtcUtils,"Shadow",rb_cObject);
+  rb_extend_object(rb_cShadow, rb_mEnumerable);
+
   rb_cGroup   = rb_define_class_under(mEtcUtils,"Group",rb_cObject);
+  rb_extend_object(rb_cGroup, rb_mEnumerable);
+
   rb_cGshadow = rb_define_class_under(mEtcUtils,"GShadow",rb_cObject);
+  rb_extend_object(rb_cGshadow, rb_mEnumerable);
   rb_define_const(mEtcUtils, "Gshadow", rb_cGshadow);
 
   id_name   = rb_intern("@name");
