@@ -13,4 +13,4 @@ Rake::ExtensionTask.new 'etcutils' do |ext|
   ext.lib_dir = "lib/etcutils"
 end
 
-task :default => [:compile, :test]
+task :default => :test

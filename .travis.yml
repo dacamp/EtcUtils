@@ -8,4 +8,5 @@ rvm:
   - ruby-head
 script:
   - rake compile
+  - rake test
   - rvmsudo rake test
