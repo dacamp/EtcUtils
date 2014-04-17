@@ -16,7 +16,7 @@ class EtcUtilsTest < Test::Unit::TestCase
     [:passwd, :group, :shadow, :gshadow].each do |m|
       a = m.to_s.downcase
       if File.exists?(f = "/etc/#{a}")
-        assert_equal(eval("EU::#{m.upcase.to_s}"), f)
+        assert_equal(eval("EU::#{m.to_s.upcase}"), f)
         assert EU.send("has_#{a}?".to_sym), "EtcUtils.has_#{a}? should be true."
       end
     end

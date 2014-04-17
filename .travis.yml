@@ -6,7 +6,8 @@ rvm:
   - 2.0.0
   - 2.1.0
   - ruby-head
+before_install:
+  - ls -la /etc/passwd /etc/group /etc/shadow /etc/gshadow
 script:
   - rake compile
   - rake test
-  - rvmsudo rake test
