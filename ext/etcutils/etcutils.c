@@ -31,6 +31,7 @@ VALUE mEtcUtils;
 ID id_name, id_passwd, id_uid, id_gid;
 uid_t uid_global = 0;
 gid_t gid_global = 0;
+VALUE assigned_uids, assigned_gids;
 
 
 /* Start of helper functions */
@@ -42,12 +43,15 @@ VALUE next_uid(int argc, VALUE *argv, VALUE self)
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
     req = uid_global;
-  else
+  else {
+    i = rb_to_int(i);
     req = NUM2UIDT(i);
-
+  }
   if ( req > 65533 )
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
-  while ( getpwuid(req) ) req++;
+
+  while ( getpwuid(req) || rb_ary_includes(assigned_uids, UIDT2NUM(req)) ) req++;
+  rb_ary_push(assigned_uids, UIDT2NUM(req));
 
   if (NIL_P(i))
     uid_global = req + 1;
@@ -70,7 +74,8 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
 
   if ( req > 65533 )
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
-  while ( getgrgid(req) ) req++;
+  while ( getgrgid(req) || rb_ary_includes(assigned_gids, GIDT2NUM(req)) ) req++;
+  rb_ary_push(assigned_gids, GIDT2NUM(req));
 
   if (NIL_P(i))
     gid_global = req +1;
@@ -263,56 +268,202 @@ VALUE eu_endgrent(VALUE self)
 #endif
   return Qnil;
 }
-/* End of set/end syscalls */
 
-VALUE eu_sgetpwent(VALUE self, VALUE nam)
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * CURRENT USER
+ *   iff *one* of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ */
+VALUE eu_parsecurrent(VALUE str, VALUE ary)
 {
-  VALUE ary, uid, gid, tmp;
+  struct passwd *pwd;
+  pwd = getpwnam( StringValuePtr(str) );
+
+  // Password
+  str = rb_ary_entry(ary,1);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_passwd), str) )
+    pwd->pw_passwd = StringValuePtr(str);
+
+  // UID/GID
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
+    str = rb_Integer( str );
+    if ( ! rb_eql( INT2FIX(pwd->pw_uid), str ) )
+      pwd->pw_uid = NUM2UIDT(str);
+  }
+
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ) ) {
+    str = rb_Integer( str );
+    if ( getgrgid(NUM2GIDT(str)) )
+      pwd->pw_gid = NUM2GIDT(str);
+  }
+
+  return setup_passwd(pwd);
+}
+
+/* INPUT Examples:
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ */
+VALUE eu_parsenew(VALUE self, VALUE ary)
+{
+  VALUE uid, gid, tmp, nam;
   struct passwd *pwd;
   struct group  *grp;
+
+  pwd = malloc(sizeof *pwd);
+
+  nam = rb_ary_entry(ary,0);
+  pwd->pw_name = StringValuePtr(nam);
+
+  /* Setup password field
+   *   if PASSWORD is empty
+   *      - if SHADOW
+   *          - PASSWORD equals 'x'
+   *      - else
+   *          - PASSWORD equals '*'
+   */
+  tmp = rb_ary_entry(ary,1);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = PW_DEFAULT_PASS;
+
+  pwd->pw_passwd = StringValuePtr(tmp);
+
+  /* Setup UID field */
+  uid = rb_ary_entry(ary,2);
+  gid = rb_ary_entry(ary,3);
+
+  /* if UID Test availability */
+  if (RSTRING_BLANK_P(uid)) {
+    tmp = rb_Integer( uid );
+    next_uid(1, &tmp, self);
+  }
+  uid = next_uid(0, 0, self);
+
+  /*   if GID empty
+   *     - if USERNAME found in /etc/group
+   *        - GID equals struct group->gid
+   *     - else next_gid
+   *   else
+   *     - if UID value (as GID) found in /etc/group
+   *       - next_gid
+   *     - else
+   *       - Test availability
+   */
+  if (RSTRING_BLANK_P(gid)) {
+    if ( (grp = getgrnam( StringValuePtr(nam) )) ) // Found a group with the same name
+      gid = GIDT2NUM(grp->gr_gid);
+    else
+      gid = next_gid(0, 0, self);
+  } else {
+    if ( getgrgid( uid ) )
+      next_gid(1, &uid, self);
+    else if ( (tmp = rb_Integer( gid )) )
+      next_gid(1, &tmp, self);
+
+    gid = next_gid(0, 0, self);
+  }
+
+  pwd->pw_uid   = NUM2UIDT(uid);
+  pwd->pw_gid   = NUM2GIDT(gid);
+
+  /*  if GECOS, HOMEDIR, SHELL is empty
+   *     - GECOS defaults to USERNAME
+   *     - Assign default VALUE (Need to set config VALUES)
+   */
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,4)) )
+    tmp = nam;
+  pwd->pw_gecos = StringValuePtr( tmp );
+
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,5)) )
+    tmp = rb_str_plus(setup_safe_str("/home/"), nam);
+  pwd->pw_dir   = StringValuePtr( tmp );
+
+  // This might be a null pointer, indicating that the system default
+  // should be used.
+  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,6)) )
+    tmp = setup_safe_str(DEFAULT_SHELL);
+  pwd->pw_shell = StringValuePtr( tmp );
+
+  tmp = setup_passwd(pwd);
+
+  if (pwd)
+    free(pwd);
+  return tmp;
+}
+/* End of set/end syscalls */
+
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ * UNIVERSAL BEHAVIOR
+ *   if USERNAME empty
+ *      - raise error
+ * CURRENT USER
+ *   iff one of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ * NEW USER
+ *   if UID/GID are empty
+ *     - next_uid/next_gid
+ *   else
+ *     - Test VALUE availability
+ *   then
+ *     - Populate UID/GID
+ *   if GECOS, HOMEDIR, SHELL is empty
+ *     - GECOS defaults to USERNAME
+ *     - Assign default VALUE (Need to set config VALUES)
+ *   if PASSWORD is empty
+ *      - raise Error
+ *
+ */
+VALUE eu_sgetpwent(VALUE self, VALUE str)
+{
+  VALUE ary;
 
   eu_setpwent(self);
   eu_setgrent(self);
 
-  ary = rb_str_split(nam,":");
-  nam = rb_ary_entry(ary,0);
-  if (!(pwd = getpwnam( StringValuePtr(nam) ))) {
-    pwd->pw_name   = StringValuePtr(nam);
-    tmp = rb_ary_entry(ary,1);
-    pwd->pw_passwd = StringValuePtr(tmp);
+  ary = rb_str_split(str, ":");
+  str = rb_ary_entry(ary,0);
 
-    uid = rb_ary_entry(ary,2);
-    if ( NIL_P(uid) || RSTRING_LEN(uid) == 0 )
-      uid = next_uid(0, 0, self);
-    else if (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) {
-      tmp = rb_Integer( uid );
-      uid = next_uid(1, &tmp, self);
-    }
+  if (RSTRING_BLANK_P(str))
+    rb_raise(rb_eArgError,"Username must be present.");
 
-    gid = rb_ary_entry(ary,3);
-    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      if ( (grp = getgrnam( StringValuePtr(nam) )) ) {
-	gid = GIDT2NUM(grp->gr_gid);
-	tmp = uid;
-	uid = next_uid(1, &gid, self);
-	next_uid(1, &tmp, self);
-	next_uid(0, 0, self);
-      } else
-	gid = next_gid(1, &uid, self);
-    else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) )
-      gid = GIDT2NUM(grp->gr_gid);
-    else
-      rb_raise(rb_eArgError,
-	       "Group ID %ld does not exist!", gid);
-
-    pwd->pw_uid = uid;
-    pwd->pw_gid = gid;
-    pwd->pw_gecos = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,4))) );
-    pwd->pw_dir   = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,5))) );
-    pwd->pw_shell = StringValuePtr( *((VALUE *)(rb_ary_entry(ary,5))) );
-  }
-
-  return setup_passwd(pwd);
+  if (getpwnam( StringValuePtr(str) ))
+    return eu_parsecurrent(str, ary);
+  else
+    return eu_parsenew(self, ary);
 }
 
 VALUE eu_sgetspent(VALUE self, VALUE nam)
@@ -342,18 +493,18 @@ VALUE eu_sgetgrent(VALUE self, VALUE nam)
   if (NIL_P(obj = eu_getgrp(self, nam))) {
     grp.gr_name   = StringValuePtr(nam);
 
-    if ( NIL_P(tmp = rb_ary_entry(ary,1)) || RSTRING_LEN(tmp) == 0 )
+    if ( RSTRING_BLANK_P((tmp = rb_ary_entry(ary,1))) )
       tmp = rb_str_new2("x");
 
     grp.gr_passwd = StringValuePtr(tmp);
 
-    if ( NIL_P(tmp = rb_ary_entry(ary,2)) || RSTRING_LEN(tmp) == 0 )
+    if ( RSTRING_BLANK_P((tmp = rb_ary_entry(ary,2))) )
       tmp = GIDT2NUM(0);
 
     tmp = rb_Integer( tmp );
     grp.gr_gid = NUM2GIDT(next_gid(1, &tmp, self));
 
-    if ( (NIL_P(tmp = rb_ary_entry(ary,3))) )
+    if ( RSTRING_BLANK_P((tmp = rb_ary_entry(ary,3))) )
       tmp = rb_str_new2("");
 
     grp.gr_mem = setup_char_members( rb_str_split(tmp,",") );
@@ -625,9 +776,8 @@ pwd_iterate(void)
   struct passwd *pwd;
 
   setspent();
-  while ( (pwd = getpwent()) ) {
+  while ( (pwd = getpwent()) )
     rb_yield(setup_passwd(pwd));
-  }
   return Qnil;
 }
 
@@ -803,6 +953,9 @@ void Init_etcutils()
   mEtcUtils = rb_define_module("EtcUtils");
   rb_extend_object(mEtcUtils, rb_mEnumerable);
 
+  assigned_uids = rb_ary_new();
+  assigned_gids = rb_ary_new();
+
   rb_cPasswd  = rb_define_class_under(mEtcUtils,"Passwd",rb_cObject);
   rb_cShadow  = rb_define_class_under(mEtcUtils,"Shadow",rb_cObject);
   rb_cGroup   = rb_define_class_under(mEtcUtils,"Group",rb_cObject);
@@ -824,6 +977,8 @@ void Init_etcutils()
 #ifdef GSHADOW
   rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
 #endif
+
+  rb_define_global_const("SHELL", setup_safe_str(DEFAULT_SHELL));
 
   // EtcUtils Functions
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
