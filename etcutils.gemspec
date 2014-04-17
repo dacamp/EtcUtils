@@ -3,7 +3,7 @@
 Gem::Specification.new do |spec|
   spec.platform      = Gem::Platform::CURRENT
   spec.name          = "etcutils"
-  spec.version       = "0.1.2"
+  spec.version       = "0.1.5"
   spec.author        = "David Campbell"
   spec.email         = "david@mrcampbell.org"
   spec.description   = "Ruby Extension that allows for reads and writes to the /etc user db."

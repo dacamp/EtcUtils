@@ -1,7 +1,7 @@
 #include "extconf.h"
 #include "ruby.h"
 
-#define EUVERSION "0.1.2"
+#define EUVERSION "0.1.5"
 
 #ifdef HAVE_RUBY_IO_H
 #include "ruby/io.h"

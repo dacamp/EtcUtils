@@ -7,6 +7,16 @@ Ruby C Extension for read and write access to the Linux user database.
 
 This gem can have catastrophic effects on your system if used incorrectly.  I eventually would like to get to the point that it does all the hard thinking for you when it comes to writing to file, but for now you'll need to write your own tmp file (like /etc/passwd-) before moving it into place.  This has worked for years for ```useradd``` and ```adduser``` and you should try keep that same mentality.
 
+## Deprecation Warning
+
+In the transitional release 0.1.5, the Struct method #to_s should no longer be used to print UserDB style strings.  I'm not printing a warning when it is used, however, since #inspect calls #to_s and warnings would get annoying quickly.
+
+The #to_s method will be removed from EtcUtils in release 1.0.0 (see feature/classes), which is scheduled to be released in late May/early June.
+
+Moving forward, please use #to_entry in-place of #to_s.  See [parse](#parse) for more.
+
+I apologize for the inconvience.
+
 
 ## Know Issues
 
@@ -217,9 +227,9 @@ p = EtcUtils::Passwd.find 1
 => #<struct EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
 p.uid = 9999
 => 9999
-p.to_s
+p.to_entry
 => "daemon:x:9999:1:daemon:/usr/sbin:/bin/sh"
-EtcUtils::Passwd.parse(p.to_s)
+EtcUtils::Passwd.parse(p.to_entry)
 => #<struct EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
 ```
 
