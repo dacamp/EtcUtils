@@ -1,6 +1,4 @@
 #include "etcutils.h"
-#include <errno.h>
-#include <stdio.h>
 
 VALUE rb_cPasswd, rb_cShadow;
 
@@ -11,9 +9,9 @@ user_get_pw_change(VALUE self)
 }
 
 static VALUE
-user_set_pw_change(VALUE self, VALUE v)
+user_set_pw_change(VALUE self)
 {
-  return iv_set_time(self, v, "@last_pw_change");
+  return iv_set_time(self, rb_current_time(), "@last_pw_change");
 }
 
 static VALUE
@@ -31,10 +29,11 @@ user_set_expire(VALUE self, VALUE v)
 VALUE user_putpwent(VALUE self, VALUE io)
 {
   struct passwd pwd, *tmp_pwd;
-  ensure_file(io);
-
-  VALUE path = RFILE_PATH(io);
+  VALUE path;
   long i = 0;
+
+  ensure_file(io);
+  path =  RFILE_PATH(io);
 
 
   pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
@@ -99,10 +98,11 @@ VALUE user_sp_entry(VALUE self)
 
 VALUE setup_shadow(struct spwd *spasswd)
 {
+  VALUE obj;
   if (!spasswd) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cShadow);
+  obj = rb_obj_alloc(rb_cShadow);
 
   rb_ivar_set(obj, id_name, setup_safe_str(spasswd->sp_namp));
   rb_ivar_set(obj, id_passwd, setup_safe_str(spasswd->sp_pwdp));
@@ -120,10 +120,11 @@ VALUE setup_shadow(struct spwd *spasswd)
 
 VALUE setup_passwd(struct passwd *pwd)
 {
+  VALUE obj;
   if (!pwd) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up Password instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cPasswd);
+  obj = rb_obj_alloc(rb_cPasswd);
 
   rb_ivar_set(obj, id_name, setup_safe_str(pwd->pw_name));
   rb_ivar_set(obj, id_passwd, setup_safe_str(pwd->pw_passwd));
@@ -161,7 +162,7 @@ void Init_etcutils_user()
 
 #ifdef HAVE_SHADOW_H // Shadow specific methods
   rb_define_attr(rb_cShadow, "name", 1, 1);
-  rb_define_attr(rb_cShadow, "passwd", 1, 1);
+  rb_define_attr(rb_cShadow, "passwd", 1, 0);
   rb_define_attr(rb_cShadow, "min_pw_age", 1, 1);
   rb_define_attr(rb_cShadow, "max_pw_age", 1, 1);
   rb_define_attr(rb_cShadow, "last_pw_change", 1, 0); //expressed as the number of days since Jan 1, 1970
@@ -170,6 +171,7 @@ void Init_etcutils_user()
   rb_define_attr(rb_cShadow, "expire", 1, 1); // expressed as the number of days since Jan 1, 1970
   rb_define_attr(rb_cShadow, "flag", 1, 0); // reserved for future use
 
+  rb_define_method(rb_cShadow, "passwd=", user_set_pw_change, 1);
   rb_define_method(rb_cShadow, "last_pw_change_date", user_get_pw_change, 0);
   rb_define_method(rb_cShadow, "expire_date", user_get_expire, 0);
   rb_define_method(rb_cShadow, "expire_date=", user_set_expire, 1);

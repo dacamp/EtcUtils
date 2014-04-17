@@ -26,7 +26,9 @@
 
 ********************************************************************/
 #include <unistd.h>
+#include <time.h>
 #include "etcutils.h"
+
 VALUE mEtcUtils;
 ID id_name, id_passwd, id_uid, id_gid;
 uid_t uid_global = 0;
@@ -112,6 +114,13 @@ VALUE iv_set_time(VALUE self, VALUE v, const char *name)
     d = -1;
 
   return rb_iv_set(self, name, INT2NUM(d));
+}
+
+VALUE rb_current_time()
+{
+  time_t s;
+  s = time(NULL);
+  return rb_time_new(s, ((time_t)0));
 }
 
 void
@@ -678,7 +687,13 @@ eu_putsgent(VALUE klass, VALUE entry, VALUE io)
 static VALUE
 eu_locked_p(VALUE self)
 {
-  if (lckpwdf())
+  int i;
+  errno = 0;
+  i = lckpwdf();
+  if (errno)
+    rb_raise(rb_eSystemCallError, "Error locking passwd files: %s", strerror(errno));
+
+  if (i)
     return Qtrue;
   else if (!ulckpwdf())
     return Qfalse;
@@ -947,6 +962,56 @@ eu_endXXent(VALUE self)
   return Qnil;
 }
 
+static VALUE
+eu_getlogin(VALUE self)
+{
+  struct passwd *pwd;
+
+  pwd = getpwuid(geteuid());
+  return setup_passwd(pwd);
+}
+
+
+static VALUE
+eu_passwd_p(VALUE self)
+{
+#ifdef PASSWD
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static VALUE
+eu_shadow_p(VALUE self)
+{
+#ifdef SHADOW
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static VALUE
+eu_group_p(VALUE self)
+{
+#ifdef GROUP
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+
+static VALUE
+eu_gshadow_p(VALUE self)
+{
+#ifdef GSHADOW
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
 
 void Init_etcutils()
 {
@@ -973,28 +1038,46 @@ void Init_etcutils()
   id_uid    = rb_intern("@uid");
   id_gid    = rb_intern("@gid");
 
-  // EtcUtils Constants
-  rb_define_global_const("PASSWD", setup_safe_str(PASSWD));
+  /* EtcUtils Constants */
+#ifdef PASSWD
+  rb_define_const(mEtcUtils, "PASSWD", setup_safe_str(PASSWD));
+#endif
 #ifdef SHADOW
-  rb_define_global_const("SHADOW", setup_safe_str(SHADOW));
+  rb_define_const(mEtcUtils, "SHADOW", setup_safe_str(SHADOW));
 #endif
-
-  rb_define_global_const("GROUP", setup_safe_str(GROUP));
+#ifdef GROUP
+  rb_define_const(mEtcUtils, "GROUP", setup_safe_str(GROUP));
+#endif
 #ifdef GSHADOW
-  rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
+  rb_define_const(mEtcUtils, "GSHADOW", setup_safe_str(GSHADOW));
 #endif
+  rb_define_const(mEtcUtils, "SHELL", setup_safe_str(DEFAULT_SHELL));
 
-  rb_define_global_const("SHELL", setup_safe_str(DEFAULT_SHELL));
-
-  // EtcUtils Functions
+  /* EtcUtils Reflective Functions */
+  rb_define_module_function(mEtcUtils,"me",eu_getlogin,0);
+  rb_define_module_function(mEtcUtils,"getlogin",eu_getlogin,0);
+  /* EtcUtils Truthy Functions */
+  rb_define_module_function(mEtcUtils,"has_passwd?",eu_passwd_p,0);
+  rb_define_module_function(mEtcUtils,"has_shadow?",eu_shadow_p,0);
+  rb_define_module_function(mEtcUtils,"has_group?",eu_group_p,0);
+  rb_define_module_function(mEtcUtils,"has_gshadow?",eu_gshadow_p,0);
+  /* EtcUtils Module functions */
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
   rb_define_module_function(mEtcUtils,"next_gid",next_gid,-1);
   rb_define_module_function(mEtcUtils,"next_uid=",next_uid,-1);
   rb_define_module_function(mEtcUtils,"next_gid=",next_gid,-1);
   rb_define_module_function(mEtcUtils,"setXXent",eu_setXXent,0);
   rb_define_module_function(mEtcUtils,"endXXent",eu_endXXent,0);
+  /* EtcUtils Lock Functions */
+  rb_define_module_function(mEtcUtils,"lckpwdf",eu_lckpwdf,0);
+  rb_define_module_function(mEtcUtils,"ulckpwdf",eu_ulckpwdf,0);
+  rb_define_module_function(mEtcUtils,"lock",eu_lock,0);
+  rb_define_module_function(mEtcUtils,"unlock",eu_unlock,0);
+  rb_define_module_function(mEtcUtils,"locked?",eu_locked_p,0);
 
-  // Shadow Functions
+
+#ifdef SHADOW
+  /* EU::Shadow module helpers */
   rb_define_module_function(mEtcUtils,"getspent",eu_getspent,0);
   rb_define_module_function(mEtcUtils,"find_spwd",eu_getspwd,1);
   rb_define_module_function(mEtcUtils,"setspent",eu_setspent,0);
@@ -1002,10 +1085,12 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetspent",eu_sgetspent,1);
   rb_define_module_function(mEtcUtils,"fgetspent",eu_fgetspent,1);
   rb_define_module_function(mEtcUtils,"putspent",eu_putspent,2);
-  // Backward compatibility
+  /* Backward compatibility */
   rb_define_module_function(mEtcUtils, "getspnam",eu_getspwd,1);
+#endif
 
-  // Password Functions
+#ifdef PASSWD
+  /* EU::Passwd module helpers */
   rb_define_module_function(mEtcUtils,"getpwent",eu_getpwent,0);
   rb_define_module_function(mEtcUtils,"find_pwd",eu_getpwd,1);
   rb_define_module_function(mEtcUtils,"setpwent",eu_setpwent,0);
@@ -1013,10 +1098,12 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetpwent",eu_sgetpwent,1);
   rb_define_module_function(mEtcUtils,"fgetpwent",eu_fgetpwent,1);
   rb_define_module_function(mEtcUtils,"putpwent",eu_putpwent,2);
-  // Backward compatibility
+  /* Backward compatibility */
   rb_define_module_function(mEtcUtils,"getpwnam",eu_getpwd,1);
+#endif
 
-  // GShadow Functions
+#ifdef GSHADOW
+  /* EU::GShadow module helpers */
   rb_define_module_function(mEtcUtils,"getsgent",eu_getsgent,0);
   rb_define_module_function(mEtcUtils,"find_sgrp",eu_getsgrp,1);
   rb_define_module_function(mEtcUtils,"setsgent",eu_setsgent,0);
@@ -1024,10 +1111,12 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetsgent",eu_sgetsgent,1);
   rb_define_module_function(mEtcUtils,"fgetsgent",eu_fgetsgent,1);
   rb_define_module_function(mEtcUtils,"putsgent",eu_putsgent,2);
-  // Backward compatibility
+  /* Backward compatibility */
   rb_define_module_function(mEtcUtils,"getsgnam",eu_getsgrp,1);
+#endif
 
-  // Group Functions
+#ifdef GROUP
+  /* EU::Group module helpers */
   rb_define_module_function(mEtcUtils,"getgrent",eu_getgrent,0);
   rb_define_module_function(mEtcUtils,"find_grp",eu_getgrp,1);
   rb_define_module_function(mEtcUtils,"setgrent",eu_setgrent,0);
@@ -1035,15 +1124,9 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"sgetgrent",eu_sgetgrent,1);
   rb_define_module_function(mEtcUtils,"fgetgrent",eu_fgetgrent,1);
   rb_define_module_function(mEtcUtils,"putgrent",eu_putgrent,2);
-  // Backward compatibility
+  /* Backward compatibility */
   rb_define_module_function(mEtcUtils,"getgrnam",eu_getgrp,1);
-
-  // Lock Functions
-  rb_define_module_function(mEtcUtils,"lckpwdf",eu_lckpwdf,0);
-  rb_define_module_function(mEtcUtils,"ulckpwdf",eu_ulckpwdf,0);
-  rb_define_module_function(mEtcUtils,"lock",eu_lock,0);
-  rb_define_module_function(mEtcUtils,"unlock",eu_unlock,0);
-  rb_define_module_function(mEtcUtils,"locked?",eu_locked_p,0);
+#endif
 
   Init_etcutils_user();
   Init_etcutils_group();

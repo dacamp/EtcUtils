@@ -1,5 +1,7 @@
 #include "extconf.h"
 #include "ruby.h"
+#include <errno.h>
+
 
 #ifdef HAVE_RUBY_IO_H
 #include "ruby/io.h"
@@ -103,6 +105,7 @@ extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
 extern VALUE iv_get_time(VALUE self, const char *name);
 extern VALUE iv_set_time(VALUE self, VALUE v, const char *name);
+extern VALUE rb_current_time();
 extern void eu_errno(VALUE str);
 extern void ensure_file(VALUE io);
 
