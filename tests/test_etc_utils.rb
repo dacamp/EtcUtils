@@ -16,13 +16,18 @@ class EtcUtilsTest < Test::Unit::TestCase
     [:passwd, :group, :shadow, :gshadow].each do |m|
       a = m.to_s.downcase
       if File.exists?(f = "/etc/#{a}")
-        assert_equal(eval("EU::#{m.to_s.upcase}"), f)
+        assert_equal(eval("EU::#{a.upcase}"), f)
         assert EU.send("has_#{a}?".to_sym), "EtcUtils.has_#{a}? should be true."
       end
     end
 
     assert_equal(EU::Gshadow, EU::GShadow)
     assert_equal(EU::SHELL, '/bin/bash')
+  end
+
+  def test_reflective_methods
+    assert_not_nil(EU.me, "EU.me should not be nil")
+    assert_equal(EU.me.class, EtcUtils::Passwd, "EU.me should return EtcUtils::Passwd class")
     assert_equal(EU.me.uid, EU.getlogin.uid)
   end
 

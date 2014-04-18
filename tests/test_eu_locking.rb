@@ -8,5 +8,4 @@ class EULockingTest < Test::Unit::TestCase
     assert EU.respond_to?(:locked?), "Should respond to locked?"
     assert EU.respond_to?(:unlock), "Should respond to unlock"
   end
-
 end
