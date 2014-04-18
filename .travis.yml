@@ -10,7 +10,7 @@ rvm:
 before_install:
   - git clean -dfx
   - bundle install
-  - [[ $(sudo grep secure_path /etc/sudoers) ]] && export rvmsudo_secure_path=1 || export rvmsudo_secure_path=0
+  - "[[ $(sudo grep secure_path /etc/sudoers) ]] && export rvmsudo_secure_path=1 || export rvmsudo_secure_path=0"
 script:
   - bundle exec rake compile
   - bundle exec rake test
