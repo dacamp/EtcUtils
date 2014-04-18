@@ -1,2 +1,3 @@
-class UserEUTest < EtcUtilsTest
+class UserEUTest < Test::Unit::TestCase
+
 end

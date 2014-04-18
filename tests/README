@@ -1,0 +1,80 @@
+
+test_eu_next_uid_next_gid
+  next_uid
+  next_gid
+  next_uid=
+  next_gid=
+
+test_etc_utils
+  me
+  getlogin
+  has_passwd?
+  has_shadow?
+  has_group?
+  has_gshadow?
+  setXXent
+  endXXent
+  getpwent
+  getgrent
+  find_pwd
+  setpwent
+  endpwent
+
+test_eu_sgetpwent
+  sgetpwent
+     find_pwd.to_entry = sgetpwent.to_entry
+     most field changes are allowed
+     new entry with available UID/GID
+     new entry with unavailable UID/GID
+
+test_eu_locking
+  lckpwdf
+  ulckpwdf
+  lock
+  unlock
+  locked?
+  - root/locking
+      lock = locked?
+      unlock != locked?
+      block locking
+      lock exception handling
+  - user/locking
+      lock exception raised
+
+
+
+TODO
+getspent
+find_spwd
+setspent
+endspent
+sgetspent
+fgetspent
+putspent
+getspnam
+
+find_pwd
+setpwent
+endpwent
+sgetpwent
+fgetpwent
+putpwent
+getpwnam
+getpwent
+
+getsgent
+find_sgrp
+setsgent
+endsgent
+sgetsgent
+fgetsgent
+putsgent
+getsgnam
+
+find_grp
+setgrent
+endgrent
+sgetgrent
+fgetgrent
+putgrent
+getgrnam

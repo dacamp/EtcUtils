@@ -1,12 +1,11 @@
 require 'etcutils_test_helper'
+require "#{$eu_user}/etc_utils"
 
 class EtcUtilsTest < Test::Unit::TestCase
   SG_MAP = Hash.new.tap do |h|
     h[:pw] = { :file => PASSWD,  :ext => 'd'  }
     h[:gr] = { :file => GROUP,   :ext => 'p'  }
   end
-
-  require "#{$eu_user}/etc_utils"
 
   def test_constants
     assert_equal(EtcUtils, EU)
@@ -17,11 +16,10 @@ class EtcUtilsTest < Test::Unit::TestCase
       a = m.to_s.downcase
       if File.exists?(f = "/etc/#{a}")
         assert_equal(eval("EU::#{a.upcase}"), f)
-        assert EU.send("has_#{a}?".to_sym), "EtcUtils.has_#{a}? should be true."
+        assert EU.send("has_#{a}?"), "EtcUtils.has_#{a}? should be true."
       end
     end
 
-    assert_equal(EU::Gshadow, EU::GShadow)
     assert_equal(EU::SHELL, '/bin/bash')
   end
 
@@ -29,6 +27,51 @@ class EtcUtilsTest < Test::Unit::TestCase
     assert_not_nil(EU.me, "EU.me should not be nil")
     assert_equal(EU.me.class, EtcUtils::Passwd, "EU.me should return EtcUtils::Passwd class")
     assert_equal(EU.me.uid, EU.getlogin.uid)
+  end
+
+  # This could fail if there are less than 5 entries in either /etc/group or /etc/passwd
+  # This could also fail if the user cannot read from these files
+  def test_pw_gr_star_ent
+    assert_nothing_raised do
+      EU.setXXent
+    end
+
+    assert_not_nil EU.getpwent, "Should be able to read from /etc/passwd"
+    assert_not_nil EU.getgrent, "Should be able to read from /etc/group"
+    3.times do
+      EU.getpwent
+      EU.getgrent
+    end
+
+    assert_not_equal(0, (EU.getpwent).uid, "EU.getpwent should iterate through /etc/passwd")
+    assert_not_equal(0, (EU.getgrent).gid, "EU.getgrent should iterate through /etc/group")
+
+    assert_nothing_raised do
+      EU.setXXent
+    end
+
+    assert_equal(0, (EU.getpwent).uid, "EU.setXXent should reset all user DB files (/etc/passwd)")
+    assert_equal(0, (EU.getgrent).gid, "EU.setXXent should reset all user DB files (/etc/group)")
+
+    assert_nothing_raised do
+      EU.endXXent
+    end
+  end
+
+  def test_eu_find_pwd
+    assert_block("EU.setpwent should reset /etc/passwd") do
+      2.times do
+        assert_nothing_raised { setpwent }
+        assert_not_nil(u = find_pwd(0))
+        assert_equal(0, u.uid, "EU.find_pwd(0) should only return User with ID zero")
+        assert_nothing_raised { endpwent }
+      end
+    end
+  end
+
+  def test_to_entry
+    r = find_pwd(0).to_entry
+    assert_equal(r.chomp, r, "#to_entry should not have a trailing newline")
   end
 
   SG_MAP.keys.each do |xx|
@@ -61,10 +104,5 @@ class EtcUtilsTest < Test::Unit::TestCase
     define_method("test_#{m}_typeerr")  { assert_raise TypeError do; EtcUtils.send(m,{}); end }
     define_method("test_#{m}_find_int") { assert EtcUtils.send(m, 0).name.eql? "root"  }
     define_method("test_#{m}_find_str") { assert EtcUtils.send(m, 'root').name.eql? "root"  }
-  end
-
-  def test_sgetXXent
-    assert sgetgrent(find_grp('root').to_entry).name.eql? "root"
-    assert sgetpwent(find_pwd('root').to_entry).name.eql? "root"
   end
 end
