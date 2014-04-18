@@ -45,15 +45,16 @@ VALUE next_uid(int argc, VALUE *argv, VALUE self)
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
     req = uid_global;
-  else {
-    i = rb_to_int(i);
+  else
     req = NUM2UIDT(i);
-  }
+
+
   if ( req > 65533 )
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
 
   while ( getpwuid(req) || rb_ary_includes(assigned_uids, UIDT2NUM(req)) ) req++;
-  rb_ary_push(assigned_uids, UIDT2NUM(req));
+  if ( (NIL_P(i)) || (req > NUM2UIDT(i)) )
+    rb_ary_push(assigned_uids, UIDT2NUM(req));
 
   if (NIL_P(i))
     uid_global = req + 1;
@@ -77,7 +78,8 @@ VALUE next_gid(int argc, VALUE *argv, VALUE self)
   if ( req > 65533 )
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
   while ( getgrgid(req) || rb_ary_includes(assigned_gids, GIDT2NUM(req)) ) req++;
-  rb_ary_push(assigned_gids, GIDT2NUM(req));
+  if ( (NIL_P(i)) || (req > NUM2UIDT(i)) )
+    rb_ary_push(assigned_gids, GIDT2NUM(req));
 
   if (NIL_P(i))
     gid_global = req +1;
@@ -358,7 +360,7 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   gid = rb_ary_entry(ary,3);
 
   /* if UID Test availability */
-  if (RSTRING_BLANK_P(uid)) {
+  if (! RSTRING_BLANK_P(uid)) {
     tmp = rb_Integer( uid );
     next_uid(1, &tmp, self);
   }
@@ -917,8 +919,8 @@ VALUE eu_getsgent(VALUE self)
 
 VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 {
-  VALUE line;
-  VALUE rb_io;
+  size_t ln;
+  VALUE line, rb_io;
   char filename[] = "/tmp/etc_utilsXXXXXX";
   int fd = mkstemp(filename);
 
@@ -938,6 +940,10 @@ VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 
   if ( unlink(filename) < 0 )
     rb_raise(rb_eIOError, "Error unlinking temp file: %s", strerror(errno));
+
+  ln = RSTRING_LEN(line);
+  if (RSTRING_PTR(line)[ln-1] == '\n')
+    RSTRING_PTR(line)[ln-1] = '\0';
 
   return line;
 }
