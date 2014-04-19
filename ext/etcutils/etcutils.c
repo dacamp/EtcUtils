@@ -321,6 +321,23 @@ VALUE eu_parsecurrent(VALUE str, VALUE ary)
       pwd->pw_gid = NUM2GIDT(str);
   }
 
+  // GECOS
+  str = rb_ary_entry(ary,4);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_gecos), str) )
+    pwd->pw_gecos = StringValuePtr(str);
+
+  // Directory
+  str = rb_ary_entry(ary,5);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_dir), str) )
+    pwd->pw_dir = StringValuePtr(str);
+
+  // Shell
+  str = rb_ary_entry(ary,6);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_shell), str) ) {
+    SafeStringValue(str);
+    pwd->pw_shell = StringValuePtr(str);
+  }
+
   return setup_passwd(pwd);
 }
 
@@ -943,7 +960,7 @@ VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 
   ln = RSTRING_LEN(line);
   if (RSTRING_PTR(line)[ln-1] == '\n')
-    RSTRING_PTR(line)[ln-1] = '\0';
+    rb_str_resize(line, ln-1);
 
   return line;
 }

@@ -38,7 +38,7 @@ class EUsgetpwentTest < Test::Unit::TestCase
     r.passwd = "password"
     r.shell  = "/bin/false"
     ent = sgetpwent(r.to_entry)
-    assert_not_equal(r.to_entry, ent.to_entry, "EU.sgetpwent should respect most attribute changes")
+    assert_not_equal(find_pwd(0).to_entry, ent.to_entry, "EU.sgetpwent should respect most attribute changes")
     assert_equal(r.gecos, ent.gecos, "EU.sgetpwent should respect #gecos changes")
     assert_equal(r.directory, ent.directory, "EU.sgetpwent should respect #directory changes")
     assert_equal(r.passwd, ent.passwd, "EU.sgetpwent should respect #directory changes")
