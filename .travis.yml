@@ -15,3 +15,6 @@ script:
   - bundle exec rake compile
   - bundle exec rake test
   - rvmsudo bundle exec rake test
+matrix:
+  allow_failures:
+    - rvm: ruby-head
