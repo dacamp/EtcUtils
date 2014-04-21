@@ -11,7 +11,7 @@
 #     end
 #   end
 
-class GShadowTest < RootEUTest
+class GShadowTest < Test::Unit::TestCase
 
   def test_sgetsgent
     assert sgetsgent(find_sgrp('root').to_entry).name.eql? "root"

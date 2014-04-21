@@ -1,7 +1,14 @@
+EU Tests
+======
+
+Trying to clearly define what should be expected and where it is tested.
+
 
 test_eu_next_uid_next_gid
   next_uid
   next_gid
+  next_uid()
+  next_gid()
   next_uid=
   next_gid=
 
@@ -24,8 +31,11 @@ test_eu_sgetpwent
   sgetpwent
      find_pwd.to_entry = sgetpwent.to_entry
      most field changes are allowed
+      - gecos, directory, passwd, shell 
      new entry with available UID/GID
-     new entry with unavailable UID/GID
+     new entry with unavailable/conflicting UID/GID
+     nil username should raise exception
+
 
 test_eu_locking
   lckpwdf
@@ -43,15 +53,8 @@ test_eu_locking
 
 
 
-TODO
-getspent
-find_spwd
-setspent
-endspent
-sgetspent
-fgetspent
-putspent
-getspnam
+## TODO
+ Should raise rb_eSystemCallError if system calls fail
 
 find_pwd
 setpwent

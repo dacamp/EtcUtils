@@ -58,10 +58,9 @@ class EUsgetpwentTest < Test::Unit::TestCase
       EU.sgetpwent(":x:1000:1000:Test User:/home/testuser:/bin/bash")
     end
 
-    # Need to decide is this should be expected behavior, or if the
-    # path should just get created
+    # Should raise rb_eSystemCallError if system calls fail (see README)
     #
-    # assert_raise Errno::ENOENT do
+    #assert_raise Errno::ENOENT do
     #  EU.sgetpwent("testuser:x:1000:1000:Test User:/fake/path/testuser:/bin/bash")
     #end
   end
