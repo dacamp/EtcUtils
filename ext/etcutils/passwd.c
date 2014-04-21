@@ -32,12 +32,14 @@ VALUE user_putpwent(VALUE self, VALUE io)
   VALUE path;
   long i = 0;
 
-  ensure_file(io);
-  path =  RFILE_PATH(io);
+  Check_EU_Type(self, rb_cPasswd);
+  Check_Writes(io, FMODE_WRITABLE);
 
+  path = RFILE_PATH(io);
 
-  pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
   rewind(RFILE_FPTR(io));
+  pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
+
   while ( (tmp_pwd = fgetpwent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_pwd->pw_name, pwd.pw_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
@@ -64,13 +66,19 @@ VALUE user_pw_entry(VALUE self)
 VALUE user_putspent(VALUE self, VALUE io)
 {
   struct spwd spasswd, *tmp_spwd;
-  VALUE path = RFILE_PATH(io);
-  long i=0;
+  VALUE path;
+  long i;
+  errno = 0;
+  i = 0;
 
+  Check_EU_Type(self, rb_cShadow);
+  Check_Writes(io, FMODE_WRITABLE);
+
+  path = RFILE_PATH(io);
+
+  rewind(RFILE_FPTR(io));
   spasswd.sp_namp  = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  ensure_file(io);
-  rewind(RFILE_FPTR(io));
   while ( (tmp_spwd = fgetspent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_spwd->sp_namp, spasswd.sp_namp) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",

@@ -141,10 +141,26 @@ eu_errno(VALUE str)
   */
 }
 
+void ensure_eu_type(VALUE self, VALUE klass)
+{
+  if (!rb_obj_is_kind_of(self, klass))
+    rb_raise(rb_eTypeError, "wrong argument type %s (expected %s)",
+	     rb_obj_classname(self), rb_class2name(klass));
+}
+
 void ensure_file(VALUE io)
 {
   Check_Type(io, T_FILE);
 }
+
+void ensure_writes(VALUE io, int t)
+{
+  ensure_file(io);
+  if (!( ((RFILE(io)->fptr)->mode) & FMODE_WRITABLE ))
+    rb_raise(rb_eIOError, "not opened for writing");
+}
+
+
 
 /*   Great way to validate (s)group members/admins
 void confirm_members(char ** mem)

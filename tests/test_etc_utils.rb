@@ -73,7 +73,6 @@ class EtcUtilsTest < Test::Unit::TestCase
     r = find_pwd(0).to_entry
     assert_equal(r.chomp, r, "#to_entry should not have a trailing newline")
   end
-
   SG_MAP.keys.each do |xx|
     define_method("test_fget#{xx}ent_cp#{SG_MAP[xx][:file].gsub('/','_')}")  {
       begin

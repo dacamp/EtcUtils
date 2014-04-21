@@ -108,6 +108,10 @@ extern VALUE iv_set_time(VALUE self, VALUE v, const char *name);
 extern VALUE rb_current_time();
 extern void eu_errno(VALUE str);
 extern void ensure_file(VALUE io);
+extern void ensure_writes(VALUE io, int t);
+#define Check_Writes(v,t) ensure_writes((VALUE)(io),(int)(t));
+extern void ensure_eu_type(VALUE self, VALUE klass);
+#define Check_EU_Type(v,t) ensure_eu_type((VALUE)(v),(VALUE)(t))
 
 extern char** setup_char_members(VALUE ary);
 extern void free_char_members(char ** mem, int c);

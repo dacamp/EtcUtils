@@ -31,7 +31,7 @@ test_eu_sgetpwent
   sgetpwent
      find_pwd.to_entry = sgetpwent.to_entry
      most field changes are allowed
-      - gecos, directory, passwd, shell 
+      - gecos, directory, passwd, shell
      new entry with available UID/GID
      new entry with unavailable/conflicting UID/GID
      nil username should raise exception
@@ -52,9 +52,27 @@ test_eu_locking
       lock exception raised
 
 
+root/etc_utils.rb
+ |- root/shadow_tests
+   module tests
+    getspent
+    find_spwd
+    setspent
+    endspent
+    sgetspent
+    getspnam
+    fgetspent
+    putspent
+
 
 ## TODO
  Should raise rb_eSystemCallError if system calls fail
+
+ putXXent calls
+  - Ensure files can be written to
+  - Ensure they are of the correct type
+  -- Macros have been made for both
+
 
 find_pwd
 setpwent
