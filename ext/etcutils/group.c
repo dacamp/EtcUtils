@@ -68,10 +68,11 @@ VALUE group_sg_entry(VALUE self)
 
 VALUE setup_group(struct group *grp)
 {
+  VALUE obj;
   if (!grp) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up Group instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cGroup);
+  obj = rb_obj_alloc(rb_cGroup);
 
   rb_ivar_set(obj, id_name, setup_safe_str(grp->gr_name));
   rb_ivar_set(obj, id_passwd, setup_safe_str(grp->gr_passwd));
@@ -83,11 +84,12 @@ VALUE setup_group(struct group *grp)
 
 VALUE setup_gshadow(struct sgrp *sgroup)
 {
-#if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)  
+#if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)
+  VALUE obj;
   if (!sgroup) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
 
-  VALUE obj = rb_obj_alloc(rb_cGshadow);
+  obj = rb_obj_alloc(rb_cGshadow);
 
   rb_ivar_set(obj, id_name, setup_safe_str(SGRP_NAME(sgroup)));
   rb_ivar_set(obj, id_passwd, setup_safe_str(sgroup->sg_passwd));

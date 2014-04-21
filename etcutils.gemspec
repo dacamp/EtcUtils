@@ -16,7 +16,8 @@ Gem::Specification.new do |spec|
   spec.extensions    = ['ext/etcutils/extconf.rb']
   spec.files         = `git ls-files`.split($/)
   spec.test_files    = spec.files.grep(%r{^(test|spec|features)/})
-  spec.require_path  = ["lib"]
+  spec.require_paths = [ 'lib', 'ext' ]
+
 
   spec.has_rdoc      = false
 
