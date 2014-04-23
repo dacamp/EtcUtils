@@ -9,6 +9,8 @@ This gem can have catastrophic effects on your system if used incorrectly.  I ev
 
 ## Deprecation Warning
 
+NOTE: In i386, #to_s was removed in 0.1.5.
+
 In the transitional release 0.1.5, the Struct method #to_s should no longer be used to print UserDB style strings.  I'm not printing a warning when it is used, however, since #inspect calls #to_s and warnings would get annoying quickly.
 
 The #to_s method will be removed from EtcUtils in release 1.0.0 (see feature/classes), which is scheduled to be released in late May/early June.

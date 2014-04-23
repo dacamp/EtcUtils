@@ -945,7 +945,7 @@ etcutils_getsgent(VALUE self)
 }
 
 static VALUE
-strt_to_s(VALUE self)
+strt_to_entry(VALUE self)
 {
   VALUE v, ary = rb_ary_new();
   long i;
@@ -1100,8 +1100,7 @@ void Init_etcutils()
   rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
   rb_define_singleton_method(cPasswd,"each",etcutils_getpwent,0);
   rb_define_method(cPasswd, "fputs", pwd_putpwent, 1);
-  rb_define_method(cPasswd, "to_s", strt_to_s,0);
-  rb_define_method(cPasswd, "to_entry", strt_to_s,0);
+  rb_define_method(cPasswd, "to_entry", strt_to_entry,0);
 
   cShadow = rb_struct_define(NULL,
 			     "name",
@@ -1125,8 +1124,7 @@ void Init_etcutils()
   rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
   rb_define_singleton_method(cShadow,"each",etcutils_getspent,0);
   rb_define_method(cShadow, "fputs", spwd_putspent, 1);
-  rb_define_method(cShadow, "to_s", strt_to_s,0);
-  rb_define_method(cShadow, "to_entry", strt_to_s,0);
+  rb_define_method(cShadow, "to_entry", strt_to_entry,0);
 
   cGroup = rb_struct_define(NULL,
 			    "name",
@@ -1160,8 +1158,7 @@ void Init_etcutils()
   rb_define_singleton_method(cGroup,"end",etcutils_endgrent,0);
   rb_define_singleton_method(cGroup,"each",etcutils_getgrent,0);
   rb_define_method(cGroup, "fputs", grp_putgrent, 1);
-  rb_define_method(cGroup, "to_s", strt_to_s,0);
-  rb_define_method(cGroup, "to_entry", strt_to_s,0);
+  rb_define_method(cGroup, "to_entry", strt_to_entry,0);
 
   cGShadow = rb_struct_define(NULL,
                               "name",
@@ -1181,6 +1178,5 @@ void Init_etcutils()
   rb_define_singleton_method(cGShadow,"end",etcutils_endsgent,0);
   rb_define_singleton_method(cGShadow,"each",etcutils_getsgent,0);
   rb_define_method(cGShadow, "fputs", sgrp_putsgent, 1);
-  rb_define_method(cGShadow, "to_s", strt_to_s,0);
-  rb_define_method(cGShadow, "to_entry", strt_to_s,0);
+  rb_define_method(cGShadow, "to_entry", strt_to_entry,0);
 }
