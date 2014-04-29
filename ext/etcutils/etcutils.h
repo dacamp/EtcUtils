@@ -86,6 +86,19 @@
 #ifndef NUM2GIDT
 #define NUM2GIDT(v) NUM2UINT(v)
 #endif
+#ifndef INT2QFIX
+#define INT2QFIX(v) (v >= 0 ? INT2FIX(v) : Qnil)
+#endif
+#ifndef UINT2QFIX
+#define UINT2QFIX(v) INT2QFIX( (int)v )
+#endif
+
+#ifndef QFIX2INT
+#define QFIX2INT(v) (RTEST(v) ? FIX2INT(v) : (long)-1 )
+#endif
+#ifndef QFIX2ULONG
+#define QFIX2ULONG(v) (RTEST(v) ? FIX2ULONG(v) : (unsigned long)-1)
+#endif
 
 extern ID id_name, id_passwd, id_uid, id_gid;
 extern VALUE mEtcUtils;

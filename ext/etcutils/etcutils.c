@@ -95,7 +95,7 @@ VALUE iv_get_time(VALUE self, const char *name)
   time_t t;
   e = rb_iv_get(self, name);
 
-  if (NUM2INT(e) < 0)
+  if (NIL_P(e) || NUM2INT(e) < 0)
     return Qnil;
   
   t = NUM2INT(e) * 86400;
@@ -162,7 +162,7 @@ void ensure_writes(VALUE io, int t)
 
 
 
-/*   Great way to validate (s)group members/admins
+/*  Validate (s)group members/admins
 void confirm_members(char ** mem)
 {
   char *name;
@@ -708,13 +708,13 @@ eu_putspent(VALUE mod, VALUE entry, VALUE io)
 }
 
 static VALUE
-eu_putgrent(VALUE klass, VALUE entry, VALUE io)
+eu_putgrent(VALUE mod, VALUE entry, VALUE io)
 {
   return group_putgrent(entry,io);
 }
 
 static VALUE
-eu_putsgent(VALUE klass, VALUE entry, VALUE io)
+eu_putsgent(VALUE mod, VALUE entry, VALUE io)
 {
   return group_putsgent(entry,io);
 }

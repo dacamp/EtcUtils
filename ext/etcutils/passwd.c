@@ -23,6 +23,9 @@ user_get_expire(VALUE self)
 static VALUE
 user_set_expire(VALUE self, VALUE v)
 {
+  if (rb_equal(v, INT2FIX(0)))
+    rb_warn("Setting Shadow#expire to 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration on Jan 1, 1970.");
+
   return iv_set_time(self, v, "@expire");
 }
 
@@ -88,10 +91,10 @@ VALUE user_putspent(VALUE self, VALUE io)
   spasswd.sp_lstchg = FIX2INT( rb_iv_get(self, "@last_pw_change") );
   spasswd.sp_min    = FIX2INT( rb_iv_get(self, "@min_pw_age") );
   spasswd.sp_max    = FIX2INT( rb_iv_get(self, "@max_pw_age") );
-  spasswd.sp_warn   = FIX2INT( rb_iv_get(self, "@warning") );
-  spasswd.sp_inact  = FIX2INT( rb_iv_get(self, "@inactive") );
-  spasswd.sp_expire = FIX2INT( rb_iv_get(self, "@expire") );
-  spasswd.sp_flag   = FIX2INT( rb_iv_get(self, "@flag") );
+  spasswd.sp_warn   = QFIX2INT( rb_iv_get(self, "@warning") );
+  spasswd.sp_inact  = QFIX2INT( rb_iv_get(self, "@inactive") );
+  spasswd.sp_expire = QFIX2INT( rb_iv_get(self, "@expire") );
+  spasswd.sp_flag   = QFIX2ULONG( rb_iv_get(self, "@flag") );
 
   if ( (putspent(&spasswd, RFILE_FPTR(io))) )
     eu_errno(path);
@@ -118,10 +121,10 @@ VALUE setup_shadow(struct spwd *spasswd)
   rb_iv_set(obj, "@last_pw_change", INT2FIX(spasswd->sp_lstchg));
   rb_iv_set(obj, "@min_pw_age", INT2FIX(spasswd->sp_min));
   rb_iv_set(obj, "@max_pw_age", INT2FIX(spasswd->sp_max));
-  rb_iv_set(obj, "@warning", INT2FIX(spasswd->sp_warn));
-  rb_iv_set(obj, "@inactive", INT2FIX(spasswd->sp_inact));
-  rb_iv_set(obj, "@expire", INT2FIX(spasswd->sp_expire));
-  rb_iv_set(obj, "@flag", INT2FIX(spasswd->sp_flag));
+  rb_iv_set(obj, "@warning", INT2QFIX(spasswd->sp_warn));
+  rb_iv_set(obj, "@inactive",  INT2QFIX(spasswd->sp_inact));
+  rb_iv_set(obj, "@expire", INT2QFIX(spasswd->sp_expire));
+  rb_iv_set(obj, "@flag", UINT2QFIX(spasswd->sp_flag));
 
   return obj;
 }
@@ -150,7 +153,6 @@ void Init_etcutils_user()
 {
 
 #ifdef HAVE_PWD_H
-  // Would love to make these read only if the user does not have access.
   rb_define_attr(rb_cPasswd, "name", 1, 1);
   rb_define_attr(rb_cPasswd, "passwd", 1, 1);
   rb_define_attr(rb_cPasswd, "uid", 1, 1);
@@ -169,17 +171,22 @@ void Init_etcutils_user()
 #endif
 
 #ifdef HAVE_SHADOW_H // Shadow specific methods
-  rb_define_attr(rb_cShadow, "name", 1, 1);
-  rb_define_attr(rb_cShadow, "passwd", 1, 0);
-  rb_define_attr(rb_cShadow, "min_pw_age", 1, 1);
-  rb_define_attr(rb_cShadow, "max_pw_age", 1, 1);
-  rb_define_attr(rb_cShadow, "last_pw_change", 1, 0); //expressed as the number of days since Jan 1, 1970
-  rb_define_attr(rb_cShadow, "warning", 1, 1);
-  rb_define_attr(rb_cShadow, "inactive", 1, 1);
-  rb_define_attr(rb_cShadow, "expire", 1, 1); // expressed as the number of days since Jan 1, 1970
-  rb_define_attr(rb_cShadow, "flag", 1, 0); // reserved for future use
+  rb_define_attr(rb_cShadow, "name", 1, 1);   /* Login name.  */
+  rb_define_attr(rb_cShadow, "passwd", 1, 0); /* Encrypted password.  */
+  rb_define_attr(rb_cShadow, "min_pw_age", 1, 1); /* Minimum number of days between changes.  */
+  rb_define_attr(rb_cShadow, "max_pw_age", 1, 1); /* Maximum number of days between changes.  */
+  rb_define_attr(rb_cShadow, "last_pw_change", 1, 0); /* Number expressed as a count of days since Jan 1, 1970
+							 since the last password change */
+  rb_define_attr(rb_cShadow, "warning", 1, 1); /* Number of days to warn user to change
+						  the password.  */
+  rb_define_attr(rb_cShadow, "inactive", 1, 1); /* Number of days after password expires
+						   that account is considered inactive and disabled */
+  rb_define_attr(rb_cShadow, "expire", 1, 0); /* Number expressed as a count of days since Jan 1, 1970
+						 on which the account will be disabled */
+  rb_define_attr(rb_cShadow, "flag", 1, 0); /* Reserved */
 
   rb_define_method(rb_cShadow, "passwd=", user_set_pw_change, 1);
+  rb_define_method(rb_cShadow, "expire=", user_set_expire, 1);
   rb_define_method(rb_cShadow, "last_pw_change_date", user_get_pw_change, 0);
   rb_define_method(rb_cShadow, "expire_date", user_get_expire, 0);
   rb_define_method(rb_cShadow, "expire_date=", user_set_expire, 1);

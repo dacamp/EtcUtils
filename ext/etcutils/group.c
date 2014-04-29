@@ -4,13 +4,17 @@ VALUE rb_cGroup, rb_cGshadow;
 VALUE group_putgrent(VALUE self, VALUE io)
 {
   struct group grp, *tmp_grp;
-  VALUE path = RFILE_PATH(io);
-  long i=0;
+  VALUE path;
+  long i = 0;
 
+  Check_EU_Type(self, rb_cGroup);
+  Check_Writes(io, FMODE_WRITABLE);
+
+  path = RFILE_PATH(io);
+
+  rewind(RFILE_FPTR(io));
   grp.gr_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  ensure_file(io);
-  rewind(RFILE_FPTR(io));
   while ( (tmp_grp = fgetgrent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_grp->gr_name, grp.gr_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
@@ -36,13 +40,17 @@ VALUE group_gr_entry(VALUE self)
 VALUE group_putsgent(VALUE self, VALUE io)
 {
   struct sgrp sgroup, *tmp_sgrp;
-  VALUE path = RFILE_PATH(io);
-  long i=0;
+  VALUE path;
+  long i = 0;
 
+  Check_EU_Type(self, rb_cGshadow);
+  Check_Writes(io, FMODE_WRITABLE);
+
+  path = RFILE_PATH(io);
+
+  rewind(RFILE_FPTR(io));
   SGRP_NAME(&sgroup)  = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  ensure_file(io);
-  rewind(RFILE_FPTR(io));
   while ( (tmp_sgrp = fgetsgent(RFILE_FPTR(io))) )
     if ( !strcmp(SGRP_NAME(tmp_sgrp), SGRP_NAME(&sgroup)) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",

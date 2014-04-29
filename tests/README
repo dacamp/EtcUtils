@@ -63,39 +63,79 @@ root/etc_utils.rb
     getspnam
     fgetspent
     putspent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+
+ |- root/gshadow_tests
+   module tests
+    getsgent
+    find_sgrp
+    setsgent
+    endsgent
+    sgetsgent
+    getsgnam
+    fgetsgent
+    putsgent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+    members
+    admins
+
+test_passwd_class
+   module tests
+    getpwent
+    find_pwd
+    setpwent
+    endpwent
+    sgetpwent
+    getpwnam
+    fgetpwent
+    putpwent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+
+
+test_group_class
+   module tests
+    getgrent
+    find_grp
+    setgrent
+    endgrent
+    sgetgrent
+    getgrnam
+    fgetgrent
+    putgrent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+    members
 
 
 ## TODO
+
+ DRYIFY root/etc_utils.rb
+
  Should raise rb_eSystemCallError if system calls fail
-
- putXXent calls
-  - Ensure files can be written to
-  - Ensure they are of the correct type
-  -- Macros have been made for both
-
-
-find_pwd
-setpwent
-endpwent
-sgetpwent
-fgetpwent
-putpwent
-getpwnam
-getpwent
-
-getsgent
-find_sgrp
-setsgent
-endsgent
-sgetsgent
-fgetsgent
-putsgent
-getsgnam
-
-find_grp
-setgrent
-endgrent
-sgetgrent
-fgetgrent
-putgrent
-getgrnam

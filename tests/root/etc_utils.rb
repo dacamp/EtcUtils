@@ -1,6 +1,5 @@
-# These will fail on OSx/BSD currently
 require 'root/shadow_tests'
 
-if EU.getsgent
+if EU.has_gshadow?
   require 'root/gshadow_tests'
 end
