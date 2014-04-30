@@ -58,6 +58,10 @@
 #define SGRP_NAME(s) (s)->sg_name
 #endif
 
+#ifndef HAVE_EACCESS
+extern int eaccess(const char*, int);
+#endif
+
 #ifdef HAVE_STRUCT_RB_IO_T_PATHV
 #define RFILE_PATH(x) (RFILE(x)->fptr)->pathv
 #else

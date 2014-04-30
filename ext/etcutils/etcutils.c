@@ -156,7 +156,7 @@ void ensure_file(VALUE io)
 void ensure_writes(VALUE io, int t)
 {
   ensure_file(io);
-  if (!( ((RFILE(io)->fptr)->mode) & FMODE_WRITABLE ))
+  if (!( ((RFILE(io)->fptr)->mode) & t ))
     rb_raise(rb_eIOError, "not opened for writing");
 }
 
@@ -1010,7 +1010,6 @@ eu_getlogin(VALUE self)
   return setup_passwd(pwd);
 }
 
-
 static VALUE
 eu_passwd_p(VALUE self)
 {
@@ -1019,6 +1018,21 @@ eu_passwd_p(VALUE self)
 #else
   return Qfalse;
 #endif
+}
+
+static int
+eu_file_readable_p(const char *fname)
+{
+  if (eaccess(fname, R_OK) < 0) return Qfalse;
+  return Qtrue;
+}
+
+static VALUE
+eu_read_passwd_p(VALUE self)
+{
+  if (eu_passwd_p(self))
+    return eu_file_readable_p(PASSWD);
+  return Qfalse;
 }
 
 static VALUE
@@ -1032,6 +1046,14 @@ eu_shadow_p(VALUE self)
 }
 
 static VALUE
+eu_read_shadow_p(VALUE self)
+{
+  if (eu_shadow_p(self))
+    return eu_file_readable_p(SHADOW);
+  return Qfalse;
+}
+
+static VALUE
 eu_group_p(VALUE self)
 {
 #ifdef GROUP
@@ -1041,6 +1063,13 @@ eu_group_p(VALUE self)
 #endif
 }
 
+static VALUE
+eu_read_group_p(VALUE self)
+{
+  if (eu_group_p(self))
+    return eu_file_readable_p(GROUP);
+  return Qfalse;
+}
 
 static VALUE
 eu_gshadow_p(VALUE self)
@@ -1050,6 +1079,18 @@ eu_gshadow_p(VALUE self)
 #else
   return Qfalse;
 #endif
+}
+
+static VALUE
+eu_read_gshadow_p(VALUE self)
+{
+  if (eu_gshadow_p(self) && eu_file_readable_p(GSHADOW))
+    if (getsgent()) {
+      setsgent();
+      return Qtrue;
+    }
+
+  return Qfalse;
 }
 
 void Init_etcutils()
@@ -1097,9 +1138,13 @@ void Init_etcutils()
   rb_define_module_function(mEtcUtils,"getlogin",eu_getlogin,0);
   /* EtcUtils Truthy Functions */
   rb_define_module_function(mEtcUtils,"has_passwd?",eu_passwd_p,0);
+  rb_define_module_function(mEtcUtils,"read_passwd?",eu_read_passwd_p,0);
   rb_define_module_function(mEtcUtils,"has_shadow?",eu_shadow_p,0);
+  rb_define_module_function(mEtcUtils,"read_shadow?",eu_read_shadow_p,0);
   rb_define_module_function(mEtcUtils,"has_group?",eu_group_p,0);
+  rb_define_module_function(mEtcUtils,"read_group?",eu_read_group_p,0);
   rb_define_module_function(mEtcUtils,"has_gshadow?",eu_gshadow_p,0);
+  rb_define_module_function(mEtcUtils,"read_gshadow?",eu_read_gshadow_p,0);
   /* EtcUtils Module functions */
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
   rb_define_module_function(mEtcUtils,"next_gid",next_gid,-1);

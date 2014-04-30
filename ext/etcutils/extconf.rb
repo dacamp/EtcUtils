@@ -9,6 +9,7 @@ require 'mkmf'
 have_header('ruby/io.h')
 have_struct_member("struct rb_io_t", "pathv", "ruby/io.h")
 have_func('rb_io_stdio_file')
+have_func('eaccess')
 
 have_header('etcutils.h')
 
