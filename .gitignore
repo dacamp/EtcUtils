@@ -5,9 +5,9 @@ Makefile
 *.gem
 *.rbc
 .bundle
+vendor/
 .config
 .yardoc
-Gemfile.lock
 InstalledFiles
 _yardoc
 coverage
