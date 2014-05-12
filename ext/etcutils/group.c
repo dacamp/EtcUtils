@@ -1,11 +1,15 @@
 #include "etcutils.h"
 VALUE rb_cGroup, rb_cGshadow;
 
-VALUE group_putgrent(VALUE self, VALUE io)
+#ifdef HAVE_PUTGRENT
+static VALUE group_gr_put(VALUE self, VALUE io)
 {
-  struct group grp, *tmp_grp;
+  struct group grp;
   VALUE path;
+#ifdef HAVE_FGETGRENT
+  struct group *tmp_grp;
   long i = 0;
+#endif
 
   Check_EU_Type(self, rb_cGroup);
   Check_Writes(io, FMODE_WRITABLE);
@@ -15,10 +19,12 @@ VALUE group_putgrent(VALUE self, VALUE io)
   rewind(RFILE_FPTR(io));
   grp.gr_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
+#ifdef HAVE_FGETGRENT
   while ( (tmp_grp = fgetgrent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_grp->gr_name, grp.gr_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_grp->gr_name,  StringValuePtr(path), ++i );
+#endif
 
   grp.gr_passwd = RSTRING_PTR(rb_ivar_get(self, id_passwd));
   grp.gr_gid    = NUM2GIDT( rb_ivar_get(self, id_gid) );
@@ -27,9 +33,30 @@ VALUE group_putgrent(VALUE self, VALUE io)
   if ( putgrent(&grp,RFILE_FPTR(io)) )
     eu_errno(RFILE_PATH(io));
 
-  free_char_members(grp.gr_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));
+  free_char_members(grp.gr_mem, (int)RARRAY_LEN( rb_iv_get(self, "@members") ));
 
   return Qtrue;
+}
+#endif
+
+static VALUE group_gr_sprintf(VALUE self)
+{
+  VALUE args[5];
+  args[0] = setup_safe_str("%s:%s:%s:%s\n");
+  args[1] = rb_ivar_get(self, id_name);
+  args[2] = rb_ivar_get(self, id_passwd);
+  args[3] = rb_ivar_get(self,id_gid);
+  args[4] = rb_ary_join((VALUE)rb_iv_get(self, "@members"), (VALUE)setup_safe_str(","));
+  return rb_f_sprintf(5, args);
+}
+
+VALUE group_putgrent(VALUE self, VALUE io)
+{
+#ifdef HAVE_PUTGRENT
+  return group_gr_put(self, io);
+#else
+  return group_gr_sprintf(self);
+#endif
 }
 
 VALUE group_gr_entry(VALUE self)
@@ -39,6 +66,7 @@ VALUE group_gr_entry(VALUE self)
 
 VALUE group_putsgent(VALUE self, VALUE io)
 {
+#ifdef GSHADOW
   struct sgrp sgroup, *tmp_sgrp;
   VALUE path;
   long i = 0;
@@ -67,6 +95,9 @@ VALUE group_putsgent(VALUE self, VALUE io)
   free_char_members(sgroup.sg_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));
 
   return Qtrue;
+#else
+  return Qnil;
+#endif
 }
 
 VALUE group_sg_entry(VALUE self)
@@ -90,9 +121,9 @@ VALUE setup_group(struct group *grp)
   return obj;
 }
 
+#if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)
 VALUE setup_gshadow(struct sgrp *sgroup)
 {
-#if defined(HAVE_GSHADOW_H) || defined(HAVE_GSHADOW__H)
   VALUE obj;
   if (!sgroup) errno  || (errno = 61); // ENODATA
   eu_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
@@ -104,10 +135,8 @@ VALUE setup_gshadow(struct sgrp *sgroup)
   rb_iv_set(obj, "@admins", setup_safe_array(sgroup->sg_adm));
   rb_iv_set(obj, "@members", setup_safe_array(sgroup->sg_mem));
   return obj;
-#else
-  return Qnil;
-#endif
 }
+#endif
 
 void Init_etcutils_group()
 {

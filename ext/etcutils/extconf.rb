@@ -38,6 +38,11 @@ if (have_header('pwd.h') && have_header('grp.h'))
       have_func(func)
     end
   end
+  have_struct_member("struct passwd", "pw_change", "pwd.h")
+  have_struct_member("struct passwd", "pw_expire", "pwd.h")
+  have_struct_member("struct passwd", "pw_class", "pwd.h")
+  have_struct_member("struct passwd", "pw_field", "pwd.h")
+
 
   create_header
   create_makefile("etcutils")

@@ -136,7 +136,9 @@ extern void free_char_members(char ** mem, int c);
 extern VALUE setup_safe_str(const char *str);
 extern VALUE setup_safe_array(char **arr);
 
+#ifdef HAVE_SHADOW_H
 extern VALUE setup_shadow(struct spwd *shadow);
+#endif
 extern VALUE setup_passwd(struct passwd *pwd);
 
 extern VALUE setup_group(struct group *grp);

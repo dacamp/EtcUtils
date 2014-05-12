@@ -29,11 +29,16 @@ user_set_expire(VALUE self, VALUE v)
   return iv_set_time(self, v, "@expire");
 }
 
-VALUE user_putpwent(VALUE self, VALUE io)
+#ifdef HAVE_PUTPWENT
+static VALUE user_pw_put(VALUE self, VALUE io)
 {
-  struct passwd pwd, *tmp_pwd;
+  struct passwd pwd;
   VALUE path;
+
+#ifdef HAVE_FGETPWENT
+  struct passwd *tmp_pwd;
   long i = 0;
+#endif
 
   Check_EU_Type(self, rb_cPasswd);
   Check_Writes(io, FMODE_WRITABLE);
@@ -43,10 +48,12 @@ VALUE user_putpwent(VALUE self, VALUE io)
   rewind(RFILE_FPTR(io));
   pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
+#ifdef HAVE_FGETPWENT
   while ( (tmp_pwd = fgetpwent(RFILE_FPTR(io))) )
     if ( !strcmp(tmp_pwd->pw_name, pwd.pw_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_pwd->pw_name,  StringValuePtr(path), ++i );
+#endif
 
   pwd.pw_passwd   = RSTRING_PTR(rb_ivar_get(self, id_passwd));
   pwd.pw_uid      = NUM2UIDT( rb_ivar_get(self,id_uid) );
@@ -60,6 +67,33 @@ VALUE user_putpwent(VALUE self, VALUE io)
 
   return Qtrue;
 }
+#endif
+
+static VALUE user_pw_sprintf(VALUE self)
+{
+  VALUE args[11];
+  args[0]  = setup_safe_str("%s:%s:%s:%s:%s:%s:%s:%s:%s:%s\n");
+  args[1]  = rb_ivar_get(self, id_name);
+  args[2]  = rb_ivar_get(self, id_passwd);
+  args[3]  = rb_ivar_get(self, id_uid);
+  args[4]  = rb_ivar_get(self,id_gid);
+  args[5]  = rb_iv_get(self, "@access_classs");
+  args[6]  = rb_iv_get(self, "@last_pw_change");
+  args[7]  = rb_iv_get(self, "@expire");
+  args[8]  = rb_iv_get(self, "@gecos");
+  args[9]  = rb_iv_get(self, "@directory");
+  args[10] = rb_iv_get(self, "@shell");
+  return rb_f_sprintf(11, args);
+}
+
+VALUE user_putpwent(VALUE self, VALUE io)
+{
+#ifdef HAVE_PUTPWENT
+  return user_pw_put(self, io);
+#else
+  return user_pw_sprintf(self);
+#endif
+}
 
 VALUE user_pw_entry(VALUE self)
 {
@@ -68,6 +102,7 @@ VALUE user_pw_entry(VALUE self)
 
 VALUE user_putspent(VALUE self, VALUE io)
 {
+#ifdef SHADOW
   struct spwd spasswd, *tmp_spwd;
   VALUE path;
   long i;
@@ -100,6 +135,9 @@ VALUE user_putspent(VALUE self, VALUE io)
     eu_errno(path);
 
   return Qtrue;
+#else
+  return Qnil;
+#endif
 }
 
 VALUE user_sp_entry(VALUE self)
@@ -107,6 +145,7 @@ VALUE user_sp_entry(VALUE self)
   return eu_to_entry(self, user_putspent);
 }
 
+#ifdef SHADOW
 VALUE setup_shadow(struct spwd *spasswd)
 {
   VALUE obj;
@@ -128,6 +167,7 @@ VALUE setup_shadow(struct spwd *spasswd)
 
   return obj;
 }
+#endif
 
 VALUE setup_passwd(struct passwd *pwd)
 {
@@ -145,6 +185,21 @@ VALUE setup_passwd(struct passwd *pwd)
   rb_iv_set(obj, "@gecos", setup_safe_str(pwd->pw_gecos));
   rb_iv_set(obj, "@directory", setup_safe_str(pwd->pw_dir));
   rb_iv_set(obj, "@shell", setup_safe_str(pwd->pw_shell));
+  #ifdef HAVE_ST_PW_CHANGE
+  if (!pwd->pw_change)
+    pwd->pw_change = (time_t)0;
+  rb_iv_set(obj, "@last_pw_change", INT2FIX(pwd->pw_change));
+  #endif
+  #ifdef HAVE_ST_PW_EXPIRE
+  if (!pwd->pw_expire)
+    pwd->pw_expire = (time_t)0;
+
+  rb_iv_set(obj, "@expire", INT2QFIX(pwd->pw_expire));
+  #endif
+  #ifdef HAVE_ST_PW_CLASS
+  if (pwd->pw_class)
+    rb_iv_set(obj, "@access_class", setup_safe_str(pwd->pw_class));
+  #endif
 
   return obj;
 }
@@ -154,12 +209,32 @@ void Init_etcutils_user()
 
 #ifdef HAVE_PWD_H
   rb_define_attr(rb_cPasswd, "name", 1, 1);
-  rb_define_attr(rb_cPasswd, "passwd", 1, 1);
   rb_define_attr(rb_cPasswd, "uid", 1, 1);
   rb_define_attr(rb_cPasswd, "gid", 1, 1);
   rb_define_attr(rb_cPasswd, "gecos", 1, 1);
   rb_define_attr(rb_cPasswd, "directory", 1, 1);
   rb_define_attr(rb_cPasswd, "shell", 1, 1);
+
+  #ifdef HAVE_ST_PW_CHANGE
+  rb_define_attr(rb_cPasswd, "last_pw_change", 1, 0); /* Number expressed as a count of days since Jan 1, 1970
+							 since the last password change */
+  rb_define_method(rb_cPasswd, "last_pw_change_date", user_get_pw_change, 0);
+  rb_define_attr(rb_cPasswd, "passwd", 1, 0);
+  rb_define_method(rb_cPasswd, "passwd=", user_set_pw_change, 1);
+  #else
+  rb_define_attr(rb_cPasswd, "passwd", 1, 1);
+  #endif
+  #ifdef HAVE_ST_PW_EXPIRE
+  rb_define_attr(rb_cPasswd, "expire", 1, 0); /* Number expressed as a count of days since Jan 1, 1970
+						 on which the account will be disabled */
+  rb_define_method(rb_cPasswd, "expire=", user_set_expire, 1);
+  rb_define_method(rb_cPasswd, "expire_date", user_get_expire, 0);
+  rb_define_method(rb_cPasswd, "expire_date=", user_set_expire, 1);
+  #endif
+
+  #ifdef HAVE_ST_PW_CLASS
+  rb_define_attr(rb_cPasswd, "access_class", 1, 1);
+  #endif
 
   rb_define_method(rb_cPasswd, "to_entry", user_pw_entry,0);
   rb_define_method(rb_cPasswd, "fputs", user_putpwent, 1);
