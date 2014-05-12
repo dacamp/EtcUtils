@@ -157,6 +157,7 @@ void Init_etcutils_group()
    *    is an Array of Strings containing the short login names of the
    *    members of the group.
    */
+#ifdef GROUP
   rb_define_attr(rb_cGroup, "name", 1, 1);
   rb_define_attr(rb_cGroup, "passwd", 1, 1);
   rb_define_attr(rb_cGroup, "gid", 1, 1);
@@ -171,7 +172,9 @@ void Init_etcutils_group()
 
   rb_define_method(rb_cGroup, "fputs", group_putgrent,1);
   rb_define_method(rb_cGroup, "to_entry", group_gr_entry,0);
+#endif
 
+#ifdef GSHADOW
   rb_define_attr(rb_cGshadow, "name", 1, 1);
   rb_define_attr(rb_cGshadow, "passwd", 1, 1);
   rb_define_attr(rb_cGshadow, "admins", 1, 1);
@@ -185,4 +188,5 @@ void Init_etcutils_group()
   rb_define_singleton_method(rb_cGshadow,"each",eu_getsgent,0);
   rb_define_method(rb_cGshadow, "fputs", group_putsgent, 1);
   rb_define_method(rb_cGshadow, "to_entry", group_sg_entry,0);
+#endif
 }

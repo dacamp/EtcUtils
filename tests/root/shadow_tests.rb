@@ -143,7 +143,7 @@ class ShadowTest < Test::Unit::TestCase
 
   def test_expire_warning
     e = EU::Shadow.find('root')
-    assert_equal capture_stderr{  e.expire = 0 }.gsub(/.+warning:\s+|\n/,''), "Setting Shadow#expire to 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration on Jan 1, 1970."
+    assert_equal capture_stderr{  e.expire = 0 }.gsub(/.+warning:\s+|\n/,''), "Setting EtcUtils::Shadow#expire to 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration of Jan 1, 1970."
     assert_equal 0, e.expire
   end
 

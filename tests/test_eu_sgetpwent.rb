@@ -46,8 +46,13 @@ class EUsgetpwentTest < Test::Unit::TestCase
   end
 
   def test_eu_new_sgetpwent
-    new = [@username, "x", EUGetPW.uid, EUGetPW.uid, "Test User", "/home/testuser", "/bin/bash"]
-    ent = EU.sgetpwent(new.join(":"))
+    if RUBY_PLATFORM =~ /darwin/    
+      new = "#{@username}:*:#{EUGetPW.uid}:#{EUGetPW.uid}::0:0:Test User:/home/testuser:/bin/bash"
+    else
+      new = "#{@username}:x:#{EUGetPW.uid}:#{EUGetPW.uid}:Test User:/home/testuser:/bin/bash"
+    end
+
+    ent = EU.sgetpwent(new)
     assert_equal(@username, ent.name, "EU.sgetpwent should have the same name")
     assert_equal(@uid, ent.uid, "EU.sgetpwent should return UID when available")
     assert_equal(@uid, ent.gid, "EU.sgetpwent should return GID when available")
@@ -55,7 +60,11 @@ class EUsgetpwentTest < Test::Unit::TestCase
 
   def test_eu_raise_sgetpwent
     assert_raise ArgumentError do
-      EU.sgetpwent(":x:1000:1000:Test User:/home/testuser:/bin/bash")
+      if RUBY_PLATFORM =~ /darwin/
+        EU.sgetpwent(":*:1000:1000::0:0:Test User:/home/testuser:/bin/bash")
+      else
+        EU.sgetpwent(":x:1000:1000:Test User:/home/testuser:/bin/bash")
+      end
     end
 
     # Should raise rb_eSystemCallError if system calls fail (see README)
@@ -66,7 +75,12 @@ class EUsgetpwentTest < Test::Unit::TestCase
   end
 
   def test_eu_conflict_sgetpwent
-    ent = EU.sgetpwent(@diff_ids.join(":"))
+    if RUBY_PLATFORM =~ /darwin/
+      new = "testuser:*:#{@taken_uid}:#{@taken_gid}::0:0:Test User:/Users/test:/bin/bash"
+    else
+      new = @diff_ids.join(":")
+    end
+    ent = EU.sgetpwent(new)
     assert_not_equal(@taken_uid, ent.uid, "EU.sgetpwent should return next availabile UID when conflict")
     assert_not_equal(@taken_gid, ent.gid, "EU.sgetpwent should return next availabile GID when conflict")
   end

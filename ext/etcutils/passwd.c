@@ -1,6 +1,7 @@
 #include "etcutils.h"
 
 VALUE rb_cPasswd, rb_cShadow;
+int expire_warned = 0;
 
 static VALUE
 user_get_pw_change(VALUE self)
@@ -9,8 +10,9 @@ user_get_pw_change(VALUE self)
 }
 
 static VALUE
-user_set_pw_change(VALUE self)
+user_set_pw_change(VALUE self, VALUE pw)
 {
+  rb_ivar_set(self, id_passwd, pw);
   return iv_set_time(self, rb_current_time(), "@last_pw_change");
 }
 
@@ -23,8 +25,10 @@ user_get_expire(VALUE self)
 static VALUE
 user_set_expire(VALUE self, VALUE v)
 {
-  if (rb_equal(v, INT2FIX(0)))
-    rb_warn("Setting Shadow#expire to 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration on Jan 1, 1970.");
+  if ((rb_equal(v, INT2FIX(0))) && (expire_warned == 0)) {
+    rb_warn("Setting %s#expire to 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration of Jan 1, 1970.", rb_obj_classname(self));
+    expire_warned = 1;
+  }
 
   return iv_set_time(self, v, "@expire");
 }
@@ -243,6 +247,10 @@ void Init_etcutils_user()
   rb_define_singleton_method(rb_cPasswd,"each",eu_getpwent,0);
   rb_define_singleton_method(rb_cPasswd,"find",eu_getpwd,1); // -1 return array
   rb_define_singleton_method(rb_cPasswd,"parse",eu_sgetpwent,1);
+
+
+  rb_define_singleton_method(rb_cPasswd,"set", eu_setpwent, 0);
+  rb_define_singleton_method(rb_cPasswd,"end", eu_endpwent, 0);
 #endif
 
 #ifdef HAVE_SHADOW_H // Shadow specific methods
@@ -273,11 +281,8 @@ void Init_etcutils_user()
   rb_define_singleton_method(rb_cShadow,"each",eu_getspent,0);
   rb_define_singleton_method(rb_cShadow,"find",eu_getspwd,1);
   rb_define_singleton_method(rb_cShadow,"parse",eu_sgetspent,1);
-#endif
-
-  rb_define_singleton_method(rb_cPasswd,"set", eu_setpwent, 0);
-  rb_define_singleton_method(rb_cPasswd,"end", eu_endpwent, 0);
 
   rb_define_singleton_method(rb_cShadow,"set", eu_setspent, 0);
   rb_define_singleton_method(rb_cShadow,"end", eu_endspent, 0);
+#endif
 }
