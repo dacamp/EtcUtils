@@ -449,6 +449,7 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   i++;
   #endif
 
+
   #ifdef HAVE_ST_PW_EXPIRE
   if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
     tmp = setup_safe_str("0");
@@ -461,18 +462,21 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
    *     - GECOS defaults to USERNAME
    *     - Assign default VALUE (Need to set config VALUES)
    */
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i++)) )
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
     tmp = nam;
   pwd->pw_gecos = StringValuePtr( tmp );
+  i++;
 
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i++)) )
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
     tmp = rb_str_plus(setup_safe_str("/home/"), nam);
   pwd->pw_dir   = StringValuePtr( tmp );
+  i++;
+
 
   /* This might be a null, indicating that the system default
    * should be used.
    */
-  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i++)) )
+  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
     tmp = setup_safe_str(DEFAULT_SHELL);
   pwd->pw_shell = StringValuePtr( tmp );
 
