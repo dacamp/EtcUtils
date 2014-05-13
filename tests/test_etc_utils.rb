@@ -101,7 +101,7 @@ class EtcUtilsTest < Test::Unit::TestCase
 
     m = "find_#{xx}#{SG_MAP[xx][:ext]}"
     define_method("test_#{m}_typeerr")  { assert_raise TypeError do; EtcUtils.send(m,{}); end }
-    define_method("test_#{m}_find_int") { assert EtcUtils.send(m, 0).name.eql? "root"  }
-    define_method("test_#{m}_find_str") { assert EtcUtils.send(m, 'root').name.eql? "root"  }
+    define_method("test_#{m}_find_int") { assert_equal(EtcUtils.send(m, 0).name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}(0) should find root by ID")  }
+    define_method("test_#{m}_find_str") { assert_equal(EtcUtils.send(m, 'root').name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}('root') should find root by name") }
   end
 end

@@ -205,6 +205,11 @@ VALUE setup_passwd(struct passwd *pwd)
     rb_iv_set(obj, "@access_class", setup_safe_str(pwd->pw_class));
   #endif
 
+  #ifdef HAVE_ST_PW_FIELD
+  if (pwd->pw_field)
+    rb_iv_set(obj, "@field", setup_safe_str(pwd->pw_field));
+  #endif
+
   return obj;
 }
 
@@ -238,6 +243,10 @@ void Init_etcutils_user()
 
   #ifdef HAVE_ST_PW_CLASS
   rb_define_attr(rb_cPasswd, "access_class", 1, 1);
+  #endif
+
+  #ifdef HAVE_ST_PW_FIELD
+  rb_define_attr(rb_cPasswd, "field", 1, 0);
   #endif
 
   rb_define_method(rb_cPasswd, "to_entry", user_pw_entry,0);
