@@ -23,7 +23,6 @@ class EUsgetpwentTest < Test::Unit::TestCase
 
     @taken_uid = EU.getpwent.uid
     @taken_gid = EU.getgrent.gid
-    @diff_ids = [@username, "x", @taken_uid, @taken_gid, "Test User", "/home/testuser", "/bin/bash"]
   end
 
   def test_eu_known_sgetpwent
@@ -81,9 +80,9 @@ class EUsgetpwentTest < Test::Unit::TestCase
 
   def test_eu_conflict_sgetpwent
     if RUBY_PLATFORM =~ /darwin/
-      new = "testuser:*:#{@taken_uid}:#{@taken_gid}::0:0:Test User:/Users/test:/bin/bash"
+      new = "#{@username}:*:#{@taken_uid}:#{@taken_gid}::0:0:Test User:/Users/test:/bin/bash"
     else
-      new = @diff_ids.join(":")
+      new = "#{@username}:x:#{@taken_uid}:#{@taken_gid}:Test User:/home/testuser:/bin/bash"
     end
     ent = EU.sgetpwent(new)
     assert_not_equal(@taken_uid, ent.uid, "EU.sgetpwent should return next availabile UID when conflict")

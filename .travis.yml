@@ -2,7 +2,7 @@
 language: ruby
 rvm:
   - 1.8.7-p374
-  - 1.9.3
+  - system
   - 2.0
   - 2.1
   - ruby-head
@@ -17,3 +17,4 @@ script:
 matrix:
   allow_failures:
     - rvm: ruby-head
+    - rvm: 1.9.3
