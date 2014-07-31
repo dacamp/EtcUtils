@@ -56,6 +56,11 @@ class EUsgetpwentTest < Test::Unit::TestCase
     assert_equal(@username, ent.name, "EU.sgetpwent should have the same name")
     assert_equal(@uid, ent.uid, "EU.sgetpwent should return UID when available")
     assert_equal(@uid, ent.gid, "EU.sgetpwent should return GID when available")
+
+    ent = EU.sgetpwent(new.gsub(/#{EUGetPW.uid}/,''))
+    e = EU.next_uid(9999) - 1
+    assert_equal(e, ent.uid, "EU.sgetpwent should return UID when available")
+    assert_equal(e, ent.gid, "EU.sgetpwent should return GID when available")
   end
 
   def test_eu_raise_sgetpwent

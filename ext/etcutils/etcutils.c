@@ -31,63 +31,56 @@
 
 VALUE mEtcUtils;
 ID id_name, id_passwd, id_uid, id_gid;
-uid_t uid_global = 0;
-gid_t gid_global = 0;
-VALUE assigned_uids, assigned_gids;
+VALUE uid_global, gid_global, assigned_uids, assigned_gids;
 
 
 /* Start of helper functions */
 VALUE next_uid(int argc, VALUE *argv, VALUE self)
 {
-  uid_t req;
   VALUE i;
+  uid_t req;
 
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
-    req = uid_global;
-  else
-    req = NUM2UIDT(i);
+    i = uid_global;
 
+  i   = rb_Integer(i);
+  req = NUM2UINT(i);
 
-  if ( req > 65533 )
+  if ( req > ((unsigned int)65533) )
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
 
-  while ( getpwuid(req) || rb_ary_includes(assigned_uids, UIDT2NUM(req)) ) req++;
-  if ( (NIL_P(i)) || (req > NUM2UIDT(i)) )
-    rb_ary_push(assigned_uids, UIDT2NUM(req));
-
-  if (NIL_P(i))
-    uid_global = req + 1;
+  while ( getpwuid(req) || rb_ary_includes(assigned_uids, UINT2NUM(req)) ) req++;
+  if (!argc)
+    rb_ary_push(assigned_uids, UINT2NUM(req));
   else
-    uid_global = req;
+    uid_global = UINT2NUM(req);
 
-  return UIDT2NUM(req);
+  return UINT2NUM(req);
 }
 
 VALUE next_gid(int argc, VALUE *argv, VALUE self)
 {
-  gid_t req;
   VALUE i;
+  gid_t req;
 
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
-    req = gid_global;
-  else
-    req = NUM2GIDT(i);
+    i = gid_global;
 
-  if ( req > 65533 )
+  i   = rb_Integer(i);
+  req = NUM2UINT(i);
+
+  if ( req > ((unsigned int)65533) )
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
 
-  while ( getgrgid(req) || rb_ary_includes(assigned_gids, GIDT2NUM(req)) ) req++;
-  if ( (NIL_P(i)) || (req > NUM2UIDT(i)) )
-    rb_ary_push(assigned_gids, GIDT2NUM(req));
-
-  if (NIL_P(i))
-    gid_global = req +1;
+  while ( getgrgid(req) || rb_ary_includes(assigned_gids, UINT2NUM(req)) ) req++;
+  if (!argc)
+    rb_ary_push(assigned_gids, UINT2NUM(req));
   else
-    gid_global = req;
+    gid_global = UINT2NUM(req);
 
-  return GIDT2NUM(req);
+  return UINT2NUM(req);
 }
 
 VALUE iv_get_time(VALUE self, const char *name)
@@ -98,7 +91,7 @@ VALUE iv_get_time(VALUE self, const char *name)
 
   if (NIL_P(e) || NUM2INT(e) < 0)
     return Qnil;
-  
+
   t = NUM2INT(e) * 86400;
   return rb_time_new(t, 0);
 }
@@ -395,37 +388,35 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   gid = rb_ary_entry(ary,i++);
 
   /* if UID Test availability */
-  if (! RSTRING_BLANK_P(uid)) {
-    tmp = rb_Integer( uid );
-    next_uid(1, &tmp, self);
-  }
+  if (! RSTRING_BLANK_P(uid))
+    next_uid(1, &uid, self);
+
   uid = next_uid(0, 0, self);
 
   /*   if GID empty
    *     - if USERNAME found in /etc/group
    *        - GID equals struct group->gid
    *     - else next_gid
-   *   else
-   *     - if UID value (as GID) found in /etc/group
-   *       - next_gid
+   *   else if GID < 1000
+   *       - assign GID
    *     - else
-   *       - Test availability
+   *       - next_gid
    */
   if (RSTRING_BLANK_P(gid))
     if ( (grp = getgrnam( StringValuePtr(nam) )) ) // Found a group with the same name
       gid = GIDT2NUM(grp->gr_gid);
     else {
-      tmp = rb_Integer( uid );
-      next_uid(1, &tmp, self);
+      next_gid(1, &uid, self);
       gid = next_gid(0, 0, self);
     }
   else {
-    if ( getgrgid( (gid_t)uid ) )
-      next_gid(1, &uid, self);
-    else if ( (tmp = rb_Integer( gid )) )
+    tmp = rb_Integer(gid);
+    if ( (NUM2UINT(tmp) != 0) && ( NUM2UINT(tmp) < ((unsigned int)1000)) )
+      gid = tmp;
+    else {
       next_gid(1, &tmp, self);
-
-    gid = next_gid(0, 0, self);
+      gid = next_gid(0, 0, self);
+    }
   }
 
   pwd->pw_uid   = NUM2UIDT(uid);
@@ -755,7 +746,7 @@ VALUE eu_getpwd(VALUE self, VALUE v)
   struct passwd *strt;
   eu_setpwent(self);
 
-  if (TYPE(v) == T_FIXNUM)
+  if ( FIXNUM_P(v) )
     strt = getpwuid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -774,7 +765,7 @@ VALUE eu_getspwd(VALUE self, VALUE v)
   struct spwd *strt;
   eu_setspent(self);
 
-  if (TYPE(v) == T_FIXNUM) {
+  if ( FIXNUM_P(v) ) {
     struct passwd *s;
     if ( (s = getpwuid(NUM2UIDT(v))) )
       v = rb_str_new2(s->pw_name);
@@ -800,7 +791,7 @@ VALUE eu_getsgrp(VALUE self, VALUE v)
   struct sgrp *strt;
   eu_setsgent(self);
 
-  if (TYPE(v) == T_FIXNUM) {
+  if ( FIXNUM_P(v) ) {
     struct group *s;
     if ( (s = getgrgid(NUM2UIDT(v))) )
       v = setup_safe_str(s->gr_name);
@@ -823,7 +814,7 @@ VALUE eu_getgrp(VALUE self, VALUE v)
   struct group *strt;
   eu_setgrent(self);
 
-  if (TYPE(v) == T_FIXNUM)
+  if (FIXNUM_P(v))
     strt = getgrgid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -1271,6 +1262,8 @@ void Init_etcutils()
 
   assigned_uids = rb_ary_new();
   assigned_gids = rb_ary_new();
+  uid_global    = UINT2NUM((uid_t)0);
+  gid_global    = UINT2NUM((gid_t)0);
 
   rb_cPasswd  = rb_define_class_under(mEtcUtils,"Passwd",rb_cObject);
   rb_extend_object(rb_cPasswd, rb_mEnumerable);

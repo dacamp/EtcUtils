@@ -75,21 +75,22 @@ extern int eaccess(const char*, int);
 #endif
 
 #ifndef RSTRING_BLANK_P
-#define RSTRING_BLANK_P(x) (NIL_P(x) || RSTRING_LEN(x) == 0)
+#define RSTRING_BLANK_P(x) (NIL_P(x) || (RSTRING_LEN(x) <= 0))
 #endif
 
 #ifndef UIDT2NUM
-#define UIDT2NUM(v) UINT2NUM(v)
+#define UIDT2NUM(v) LONG2NUM(v)
 #endif
 #ifndef NUM2UIDT
-#define NUM2UIDT(v) NUM2UINT(v)
+#define NUM2UIDT(v) NUM2LONG(v)
 #endif
 #ifndef GIDT2NUM
-#define GIDT2NUM(v) UINT2NUM(v)
+#define GIDT2NUM(v) LONG2NUM(v)
 #endif
 #ifndef NUM2GIDT
-#define NUM2GIDT(v) NUM2UINT(v)
+#define NUM2GIDT(v) NUM2LONG(v)
 #endif
+
 #ifndef INT2QFIX
 #define INT2QFIX(v) (v >= 0 ? INT2FIX(v) : Qnil)
 #endif
@@ -113,8 +114,8 @@ extern VALUE rb_cGroup;
 extern VALUE rb_cGshadow;
 
 /* EU helper functions */
-extern uid_t uid_global;
-extern gid_t gid_global;
+extern VALUE uid_global;
+extern VALUE gid_global;
 extern VALUE assigned_uids;
 extern VALUE assigned_gids;
 
