@@ -31,8 +31,10 @@
 
 VALUE mEtcUtils;
 ID id_name, id_passwd, id_uid, id_gid;
-VALUE uid_global, gid_global, assigned_uids, assigned_gids;
-
+static VALUE uid_global;
+static VALUE gid_global;
+static VALUE assigned_uids;
+static VALUE assigned_gids;
 
 /* Start of helper functions */
 VALUE next_uid(int argc, VALUE *argv, VALUE self)
@@ -1264,6 +1266,11 @@ void Init_etcutils()
   assigned_gids = rb_ary_new();
   uid_global    = UINT2NUM((uid_t)0);
   gid_global    = UINT2NUM((gid_t)0);
+
+  rb_global_variable(&assigned_uids);
+  rb_global_variable(&assigned_gids);
+  rb_global_variable(&uid_global);
+  rb_global_variable(&gid_global);
 
   rb_cPasswd  = rb_define_class_under(mEtcUtils,"Passwd",rb_cObject);
   rb_extend_object(rb_cPasswd, rb_mEnumerable);

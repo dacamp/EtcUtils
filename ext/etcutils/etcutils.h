@@ -114,11 +114,6 @@ extern VALUE rb_cGroup;
 extern VALUE rb_cGshadow;
 
 /* EU helper functions */
-extern VALUE uid_global;
-extern VALUE gid_global;
-extern VALUE assigned_uids;
-extern VALUE assigned_gids;
-
 extern VALUE next_uid( int argc, VALUE *argv, VALUE self);
 extern VALUE next_gid( int argc, VALUE *argv, VALUE self);
 extern VALUE iv_get_time(VALUE self, const char *name);
