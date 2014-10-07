@@ -1,4 +1,4 @@
-EtcUtils
+EtcUtils [![Build Status](https://travis-ci.org/dacamp/etcutils.svg?branch=master)](https://travis-ci.org/dacamp/etcutils)
 ======
 
 Ruby C Extension for read and write access to the Linux user database.
