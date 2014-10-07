@@ -182,7 +182,7 @@ EtcUtils.locked?
 
 ---
 
-The below should apply to any of the above structs.  If you find a bug, <b>please</b> open an issue.
+The below should apply to any of the above classes.  If you find a bug, <b>please</b> open an issue.
 
 XX can be replaced with
 
@@ -210,14 +210,14 @@ Calling `EtcUtils.getgrent` and `EtcUtils::Group.get` retrieves the first entry 
 
 ```ruby
 EtcUtils.getgrent
-=> #<struct EtcUtils::Group name="root", passwd="x", gid=0, members=[]>
+=> #<class EtcUtils::Group name="root", passwd="x", gid=0, members=[]>
 ...
 EtcUtils::Group.get
-=> #<struct EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
+=> #<class EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
 EtcUtils.setgrent
 => nil
 EtcUtils::Group.get
-=> #<struct EtcUtils::Group name="root", passwd="x", gid=0, members=[]>
+=> #<class EtcUtils::Group name="root", passwd="x", gid=0, members=[]>
 ```
 
 ### find
@@ -226,9 +226,9 @@ EtcUtils::Group.get
 
 ```ruby
 EtcUtils::GShadow.find 'adm'
-=> #<struct EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
+=> #<class EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
 EtcUtils::GShadow.find 4
-=> #<struct EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
+=> #<class EtcUtils::Group name="adm", passwd="x", gid=4, members=["ubuntu", "foobar"]>
 ```
 
 ## New Entries
@@ -239,13 +239,13 @@ If an entry already exists in the corresponding file, that object (un-altered) i
 
 ```ruby
 p = EtcUtils::Passwd.find 1
-=> #<struct EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
+=> #<class EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
 p.uid = 9999
 => 9999
 p.to_entry
 => "daemon:x:9999:1:daemon:/usr/sbin:/bin/sh"
 EtcUtils::Passwd.parse(p.to_entry)
-=> #<struct EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
+=> #<class EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
 ```
 
 If no entry is found, the new object is returned.
@@ -254,17 +254,17 @@ If uid/gid fields are left blank, the next available id is returned.
 
 ```ruby
 EtcUtils::Passwd.parse("foobar:x:::Foobar User:/home/foobar:/bin/shell")
-=> #<struct EtcUtils::Passwd name="foobar", passwd="x", uid=11, gid=11, gecos="Foobar User", dir="/home/foobar", shell="/bin/shell">
+=> #<class EtcUtils::Passwd name="foobar", passwd="x", uid=11, gid=11, gecos="Foobar User", dir="/home/foobar", shell="/bin/shell">
 ```
 ### new
 
-When called without args, an empty struct is returned.  When called with args, those args are used to populate the object.
+When called without args, an empty class is returned.  When called with args, those args are used to populate the object.
 
 ```ruby
 EtcUtils::GShadow.new("foobar", '!', nil, ['sudo','adm'])
-=> #<struct EtcUtils::GShadow name="foobar", passwd="!", admins=nil, members=["sudo", "adm"]>
+=> #<class EtcUtils::GShadow name="foobar", passwd="!", admins=nil, members=["sudo", "adm"]>
 EtcUtils::GShadow.new
-=> #<struct EtcUtils::GShadow name=nil, passwd=nil, admins=nil, members=nil>
+=> #<class EtcUtils::GShadow name=nil, passwd=nil, admins=nil, members=nil>
 ```
 ## Writing Entries
 
@@ -322,7 +322,7 @@ EtcUtils.next_uid
 EtcUtils.next_uid  = 1000
 => 1000
 EtcUtils::Passwd.parse("foobar:x:::Foobar User:/home/foobar:/bin/shell")
-=> #<struct EtcUtils::Passwd name="foobar", passwd="x", uid=1016, gid=1016, gecos="Foobar User", dir="/home/foobar", shell="/bin/shell">
+=> #<class EtcUtils::Passwd name="foobar", passwd="x", uid=1016, gid=1016, gecos="Foobar User", dir="/home/foobar", shell="/bin/shell">
 ```
 
 Although, when calling `:next_uid` or `:next_gid` they are not kept in sync.  When creating new entries, it's recommended allow parse or new to manage uid/gids rather than assigning them yourself.
