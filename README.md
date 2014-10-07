@@ -26,15 +26,18 @@ Verified on Ubuntu 12.04, nsswitch.conf is misconfigured due to a known [bug](ht
 
     gshadow:        files
 
+OS X / BSD has not been thoroughly tested and should only be used to read from the userdb.
 
-## Structs
+## Classes
 
 ##### EtcUtils::Passwd
 
+###### Linux
 ```ruby
-EtcUtils.find_pwd(1 || 'daemon')
-EtcUtils::Passwd.find('daemon' || 1)
-=> # <struct EtcUtils::Passwd name="daemon", passwd="x", uid=1, gid=1, gecos="daemon", dir="/usr/sbin", shell="/bin/sh">
+require 'etcutils'
+EU.find_pwd(1)
+EU::Passwd.find('daemon')
+=> #<EtcUtils::Passwd:0x000000018d6f48 @name="daemon", @passwd="x", @uid=1, @gid=1, @gecos="daemon", @directory="/usr/sbin", @shell="/bin/sh">
 ```
 
 * `:name`: This is the user’s login name. It should not contain capital letters.
@@ -51,13 +54,24 @@ EtcUtils::Passwd.find('daemon' || 1)
 
 * `:shell`: This is the program to run at login (if empty, use /bin/sh). If set to a nonexistent executable, the user will be unable to login through `login(1)`. The value in this field is used to set the SHELL environment variable.
 
+###### OS X
+```ruby
+EtcUtils.find_pwd(1 || 'daemon')
+EtcUtils::Passwd.find('daemon' || 1)
+=> #<EtcUtils::Passwd:0x007ff3919fb730 @name="daemon", @passwd="*", @uid=1, @gid=1, @gecos="System Services", @directory="/var/root", @shell="/usr/bin/false", @last_pw_change=0, @expire=0, @access_class="">
+```
+
+* `:last_pw_change`: The date of the last password change, expressed as the number of days since Jan 1, 1970. The value 0 has a special meaning, which is that the user should change her pasword the next time she will log in the system. An empty field means that password aging features are disabled.
+
+* `:expire`: The date of expiration of the account, expressed as the number of days since Jan 1, 1970. Note that an account expiration differs from a password expiration. In case of an acount expiration, the user shall not be allowed to login. In case of a password expiration, the user is not allowed to login using her password. An empty field means that the account will never expire. The value 0 should not be used as it is interpreted as either an account with no expiration, or as an expiration on Jan 1, 1970.
+
 
 ##### EtcUtils::Group
 
 ```ruby
 EtcUtils.find_grp(1 || 'daemon')
-EtcUtils::Group.find('daemon' || 1)
-=> #<struct EtcUtils::Group name="daemon", passwd="x", gid=1, members=[]>
+EtcUtils::Group.find('daemon')
+=> #<EtcUtils::Group:0x007fda2c8a8d20 @name="daemon", @passwd="*", @gid=1, @members=["root"]>
 ```
 
 * `:name`: The name of the group.
@@ -70,7 +84,7 @@ EtcUtils::Group.find('daemon' || 1)
 
 ##### EtcUtils::Shadow
 
-The user must be able to read `SHADOW` or nil is returned.
+The system must use shadow utils and the user must be able to read `SHADOW` or nil is returned.
 
 ```ruby
 SHADOW
@@ -109,7 +123,6 @@ The user must be able to read `GSHADOW` or nil is returned.
 GSHADOW
 => "/etc/gshadow"
 EtcUtils.find_sgrp('daemon' || 1)
-EtcUtils::GShadow.find('daemon' || 1)
 EtcUtils::Gshadow.find('daemon' || 1)
 => #<struct EtcUtils::GShadow name="daemon", passwd="*", admins=[], members=[]>
 ```

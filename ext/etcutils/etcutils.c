@@ -25,126 +25,199 @@
  SOFTWARE.
 
 ********************************************************************/
-
+#include <unistd.h>
+#include <time.h>
 #include "etcutils.h"
-uid_t uid_global = 0;
-gid_t gid_global = 0;
 
+VALUE mEtcUtils;
+ID id_name, id_passwd, id_uid, id_gid;
+static VALUE uid_global;
+static VALUE gid_global;
+static VALUE assigned_uids;
+static VALUE assigned_gids;
 
 /* Start of helper functions */
-static VALUE
-next_uid(int argc, VALUE *argv, VALUE self)
+VALUE next_uid(int argc, VALUE *argv, VALUE self)
 {
+  VALUE i;
   uid_t req;
-  VALUE i;
 
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
-    req = uid_global;
-  else
-    req = NUM2UIDT(i);
+    i = uid_global;
 
-  if ((req < 0) || (req > 65533))
+  i   = rb_Integer(i);
+  req = NUM2UINT(i);
+
+  if ( req > ((unsigned int)65533) )
     rb_raise(rb_eArgError, "UID must be between 0 and 65533");
-  while ( getpwuid(req) ) req++;
 
-  if (NIL_P(i))
-    uid_global = req + 1;
+  while ( getpwuid(req) || rb_ary_includes(assigned_uids, UINT2NUM(req)) ) req++;
+  if (!argc)
+    rb_ary_push(assigned_uids, UINT2NUM(req));
   else
-    uid_global = req;
+    uid_global = UINT2NUM(req);
 
-  return UIDT2NUM(req);
+  return UINT2NUM(req);
 }
 
-static VALUE
-next_gid(int argc, VALUE *argv, VALUE self)
+VALUE next_gid(int argc, VALUE *argv, VALUE self)
 {
-  gid_t req;
   VALUE i;
+  gid_t req;
 
   rb_scan_args(argc, argv, "01", &i);
   if (NIL_P(i))
-    req = gid_global;
-  else
-    req = NUM2GIDT(i);
+    i = gid_global;
 
-  if ((req < 0) || (req > 65533))
+  i   = rb_Integer(i);
+  req = NUM2UINT(i);
+
+  if ( req > ((unsigned int)65533) )
     rb_raise(rb_eArgError, "GID must be between 0 and 65533");
-  while ( getgrgid(req) ) req++;
 
-  if (NIL_P(i))
-    gid_global = req +1;
+  while ( getgrgid(req) || rb_ary_includes(assigned_gids, UINT2NUM(req)) ) req++;
+  if (!argc)
+    rb_ary_push(assigned_gids, UINT2NUM(req));
   else
-    gid_global = req;
+    gid_global = UINT2NUM(req);
 
-  return GIDT2NUM(req);
+  return UINT2NUM(req);
 }
 
-static void
-etcutils_errno(VALUE str)
+VALUE iv_get_time(VALUE self, const char *name)
 {
-  // SafeStringValue(str);
-  // if ( (errno) && ( !(errno == ENOTTY) || !(errno == ENOENT) ) )
-  //  rb_sys_fail( StringValuePtr(str) );
+  VALUE e;
+  time_t t;
+  e = rb_iv_get(self, name);
+
+  if (NIL_P(e) || NUM2INT(e) < 0)
+    return Qnil;
+
+  t = NUM2INT(e) * 86400;
+  return rb_time_new(t, 0);
+}
+
+VALUE iv_set_time(VALUE self, VALUE v, const char *name)
+{
+  struct timeval t;
+  long int d;
+
+  RTIME_VAL(t) = rb_time_timeval(v);
+  d = ((long)t.tv_sec / 86400);
+
+  if (FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
+    d = NUM2INT(v);
+  else if (d < 1)
+    d = -1;
+
+  return rb_iv_set(self, name, INT2NUM(d));
+}
+
+VALUE rb_current_time()
+{
+  time_t s;
+  s = time(NULL);
+  return rb_time_new(s, ((time_t)0));
+}
+
+void
+eu_errno(VALUE str)
+{
   /*
+  SafeStringValue(str);
+  if ( (errno) && ( !(errno == ENOTTY) || !(errno == ENOENT) ) )
+    rb_sys_fail( StringValuePtr(str) );
       Errno::ENOTTY: Inappropriate ioctl for device
       https://bugs.ruby-lang.org/issues/6127
       ioctl range error in 1.9.3
       Fixed in 1.9.3-p194 (REVISION r37138)
       Ubuntu System Ruby (via APT) - 1.9.3-p0 (REVISION 33570)
+  errno = 0;
   */
-  //errno = 0;
 }
 
-static void
-ensure_file(VALUE io)
+void ensure_eu_type(VALUE self, VALUE klass)
+{
+  if (!rb_obj_is_kind_of(self, klass))
+    rb_raise(rb_eTypeError, "wrong argument type %s (expected %s)",
+	     rb_obj_classname(self), rb_class2name(klass));
+}
+
+void ensure_file(VALUE io)
 {
   rb_io_check_initialized(RFILE(io)->fptr);
 }
 
-static void
-free_char_members(char ** mem, int c)
+void ensure_writes(VALUE io, int t)
+{
+  ensure_file(io);
+  if (!( ((RFILE(io)->fptr)->mode) & t ))
+    rb_raise(rb_eIOError, "not opened for writing");
+}
+
+
+
+/*  Validate (s)group members/admins
+void confirm_members(char ** mem)
+{
+  char *name;
+
+  while(name = *mem++)
+    if (!getpwnam(name))
+      rb_raise(rb_eArgError,
+	       "%s was not found in '%s'", name, PASSWD);
+}
+*/
+
+void free_char_members(char ** mem, int c)
 {
   if (NULL != mem) {
-    int i=0;
+    int i;
     for (i=0; i<c+1 ; i++) free(mem[i]);
     free(mem);
   }
 }
 
-static char**
-setup_char_members(VALUE ary)
+char** setup_char_members(VALUE ary)
 {
   char ** mem;
-  VALUE temp;
-  long i;
+  VALUE tmp,last;
+  long i,off;
   Check_Type(ary,T_ARRAY);
 
   mem = malloc((RARRAY_LEN(ary) + 1)*sizeof(char**));
   if (mem == NULL)
     rb_memerror();
 
-  for (i = 0; i < RARRAY_LEN(ary); i++) {
-    temp = rb_obj_as_string(RARRAY_PTR(ary)[i]);
-    StringValueCStr(temp);
-    mem[i] = malloc((RSTRING_LEN(temp))*sizeof(char*));;
+  rb_ary_sort_bang(ary);
+  last = rb_str_new2("");
+  off = 0;
 
-    if (mem[i]  == NULL) rb_memerror();
-    strcpy(mem[i], RSTRING_PTR(temp));
+  for (i = 0; i < RARRAY_LEN(ary); i++) {
+    tmp = rb_obj_as_string(RARRAY_PTR(ary)[i]);
+    if ( (rb_str_cmp(tmp, last)) ) {
+      StringValueCStr(tmp);
+      mem[i-off] = malloc((RSTRING_LEN(tmp))*sizeof(char*));;
+
+      if (mem[i-off]  == NULL) rb_memerror();
+      strcpy(mem[i-off], RSTRING_PTR(tmp));
+    } else
+      off++;
+
+    last = tmp;
   }
-  mem[i] = NULL;
+  mem[i-off] = NULL;
 
   return mem;
 }
 
-static VALUE
-setup_safe_str(const char *str)
+VALUE setup_safe_str(const char *str)
 {
   return rb_tainted_str_new2(str); // this already handles characters >= 0
 }
 
-static VALUE
-setup_safe_array(char **arr)
+VALUE setup_safe_array(char **arr)
 {
   VALUE mem = rb_ary_new();
 
@@ -152,115 +225,10 @@ setup_safe_array(char **arr)
     rb_ary_push(mem, setup_safe_str(*arr++));
   return mem;
 }
-
-static VALUE
-setup_gshadow(struct sgrp *sgroup)
-{
-  if (!sgroup) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up GShadow instance." ) );
-  return rb_struct_new(cGShadow,
-		       setup_safe_str(SGRP_NAME(sgroup)),
-		       setup_safe_str(sgroup->sg_passwd),
-		       setup_safe_array(sgroup->sg_adm),
-		       setup_safe_array(sgroup->sg_mem),
-		       NULL);
-}
-
-static VALUE
-setup_shadow(struct spwd *shadow)
-{
-  if (!shadow) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Shadow instance." ) );
-  return rb_struct_new(cShadow,
-		       setup_safe_str(shadow->sp_namp),
-		       setup_safe_str(shadow->sp_pwdp),
-		       INT2FIX(shadow->sp_lstchg),
-		       INT2FIX(shadow->sp_min),
-		       INT2FIX(shadow->sp_max),
-		       INT2FIX(shadow->sp_warn),
-		       INT2FIX(shadow->sp_inact),
-		       INT2FIX(shadow->sp_expire),
-		       INT2FIX(shadow->sp_flag),
-		       NULL);
-}
-
-static VALUE
-setup_group(struct group *grp)
-{
-  if (!grp) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Group instance." ) );
-  return rb_struct_new(cGroup,
-		       setup_safe_str(grp->gr_name),
-		       setup_safe_str(grp->gr_passwd),
-		       GIDT2NUM(grp->gr_gid),
-		       setup_safe_array(grp->gr_mem),
-		       NULL);
-}
-
-static VALUE
-setup_passwd(struct passwd *pwd)
-{
-  if (!pwd) errno  || (errno = 61); // ENODATA
-  etcutils_errno( setup_safe_str ( "Error setting up Password instance." ) );
-  return rb_struct_new(cPasswd,
-		       setup_safe_str(pwd->pw_name),
-		       setup_safe_str(pwd->pw_passwd),
-		       UIDT2NUM(pwd->pw_uid),
-		       GIDT2NUM(pwd->pw_gid),
-		       setup_safe_str(pwd->pw_gecos),
-		       setup_safe_str(pwd->pw_dir),
-		       setup_safe_str(pwd->pw_shell),
-		       NULL);
-}
 /* End of helper functions */
 
-static VALUE
-etcutils_setsgent(VALUE self)
-{
-#ifdef HAVE_SETSGENT
-  setsgent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_endsgent(VALUE self)
-{
-#ifdef HAVE_ENDSGENT
-  endsgent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_setgrent(VALUE self)
-{
-#ifdef HAVE_SETGRENT
-  setgrent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_endgrent(VALUE self)
-{
-#ifdef HAVE_ENDGRENT
-  endgrent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_setspent(VALUE self)
-{
-#ifdef HAVE_SETSPENT
-  setspent();
-#endif
-  return Qnil;
-}
-
-static VALUE
-etcutils_setpwent(VALUE self)
+/* set/end syscalls */
+VALUE eu_setpwent(VALUE self)
 {
 #ifdef HAVE_SETPWENT
   setpwent();
@@ -268,8 +236,7 @@ etcutils_setpwent(VALUE self)
   return Qnil;
 }
 
-static VALUE
-etcutils_endpwent(VALUE self)
+VALUE eu_endpwent(VALUE self)
 {
 #ifdef HAVE_ENDPWENT
   endpwent();
@@ -277,8 +244,15 @@ etcutils_endpwent(VALUE self)
   return Qnil;
 }
 
-static VALUE
-etcutils_endspent(VALUE self)
+VALUE eu_setspent(VALUE self)
+{
+#ifdef HAVE_SETSPENT
+  setspent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_endspent(VALUE self)
 {
 #ifdef HAVE_ENDSPENT
   endspent();
@@ -286,64 +260,288 @@ etcutils_endspent(VALUE self)
   return Qnil;
 }
 
-static VALUE
-etcutils_sgetpwent(VALUE self, VALUE nam)
+VALUE eu_setsgent(VALUE self)
 {
-  VALUE ary, uid, gid, tmp;
-  struct passwd *pwd;
-  struct group  *grp;
-
-  SafeStringValue(nam);
-  ary = rb_str_split(nam,":");
-
-  etcutils_setpwent(self);
-  etcutils_setgrent(self);
-
-  nam = rb_ary_entry(ary,0);
-  SafeStringValue(nam);
-  if (pwd = getpwnam( StringValuePtr(nam) )) {
-    rb_ary_store(ary, 2, UIDT2NUM(pwd->pw_uid) );
-    rb_ary_store(ary, 3, UIDT2NUM(pwd->pw_gid) );
-  } else {
-    uid = rb_ary_entry(ary,2);
-    // If there actually is a UID and that UID isn't already assigned
-    if ( (!( NIL_P(uid) || RSTRING_LEN(uid) == 0 )) &&  (getpwuid( NUM2UIDT( rb_Integer( uid ) ) )) ) {
-      tmp = rb_Integer( uid );
-      next_uid(1, &tmp, self);
-    }
-    uid = next_uid(0, 0, self);
-
-    gid = rb_ary_entry(ary,3);
-    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      if ( (grp = getgrnam( StringValuePtr(nam) )) ) { // Found a group with the same name
-	gid = GIDT2NUM(grp->gr_gid);
-	// See if the UID with value GID is available
-	// If so, we can keep a little sanity and match the GID and UID
-	tmp = uid;
-	next_uid(1, &gid, self);
-	uid = next_uid(0, 0, self);
-	if (! uid == gid)
-	  uid = tmp;
-      } else {
-	next_gid(1, &uid, self);
-	gid = next_gid(0, 0, self);
-      }
-    else if ( (grp = getgrgid( NUM2GIDT( rb_Integer(gid) ) )) )
-      gid = GIDT2NUM(grp->gr_gid);
-    else
-      rb_raise(rb_eArgError,
-	       "Group ID %ld does not exist!", gid);
-
-    rb_ary_store(ary, 2, rb_Integer( uid ) );
-    rb_ary_store(ary, 3, rb_Integer( gid ) );
-  }
-
-  return rb_struct_alloc( self, ary );
+#ifdef HAVE_SETSGENT
+  setsgent();
+#endif
+  return Qnil;
 }
 
-static VALUE
-etcutils_sgetspent(VALUE self, VALUE nam)
+VALUE eu_endsgent(VALUE self)
 {
+#ifdef HAVE_ENDSGENT
+  endsgent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_setgrent(VALUE self)
+{
+#ifdef HAVE_SETGRENT
+  setgrent();
+#endif
+  return Qnil;
+}
+
+VALUE eu_endgrent(VALUE self)
+{
+#ifdef HAVE_ENDGRENT
+  endgrent();
+#endif
+  return Qnil;
+}
+
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * CURRENT USER
+ *   iff *one* of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ */
+VALUE eu_parsecurrent(VALUE str, VALUE ary)
+{
+  struct passwd *pwd;
+  pwd = getpwnam( StringValuePtr(str) );
+
+  // Password
+  str = rb_ary_entry(ary,1);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_passwd), str) )
+    pwd->pw_passwd = StringValuePtr(str);
+
+  // UID/GID
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
+    str = rb_Integer( str );
+    if ( ! rb_eql( INT2FIX(pwd->pw_uid), str ) )
+      pwd->pw_uid = NUM2UIDT(str);
+  }
+
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ) ) {
+    str = rb_Integer( str );
+    if ( getgrgid(NUM2GIDT(str)) )
+      pwd->pw_gid = NUM2GIDT(str);
+  }
+
+  // GECOS
+  str = rb_ary_entry(ary,4);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_gecos), str) )
+    pwd->pw_gecos = StringValuePtr(str);
+
+  // Directory
+  str = rb_ary_entry(ary,5);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_dir), str) )
+    pwd->pw_dir = StringValuePtr(str);
+
+  // Shell
+  str = rb_ary_entry(ary,6);
+  if ( ! rb_eql( setup_safe_str(pwd->pw_shell), str) ) {
+    SafeStringValue(str);
+    pwd->pw_shell = StringValuePtr(str);
+  }
+
+  return setup_passwd(pwd);
+}
+
+/* INPUT Examples:
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ */
+VALUE eu_parsenew(VALUE self, VALUE ary)
+{
+  VALUE uid, gid, tmp, nam;
+  struct passwd *pwd;
+  struct group  *grp;
+  int i = 0;
+
+  pwd = malloc(sizeof *pwd);
+
+  nam = rb_ary_entry(ary,i++);
+  pwd->pw_name = StringValuePtr(nam);
+
+  /* Setup password field
+   *   if PASSWORD is empty
+   *      - if SHADOW
+   *          - PASSWORD equals 'x'
+   *      - else
+   *          - PASSWORD equals '*'
+   */
+  tmp = rb_ary_entry(ary,i++);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = PW_DEFAULT_PASS;
+
+  pwd->pw_passwd = StringValuePtr(tmp);
+
+  /* Setup UID field */
+  uid = rb_ary_entry(ary,i++);
+  gid = rb_ary_entry(ary,i++);
+
+  /* if UID Test availability */
+  if (! RSTRING_BLANK_P(uid))
+    next_uid(1, &uid, self);
+
+  uid = next_uid(0, 0, self);
+
+  /*   if GID empty
+   *     - if USERNAME found in /etc/group
+   *        - GID equals struct group->gid
+   *     - else next_gid
+   *   else if GID < 1000
+   *       - assign GID
+   *     - else
+   *       - next_gid
+   */
+  if (RSTRING_BLANK_P(gid))
+    if ( (grp = getgrnam( StringValuePtr(nam) )) ) // Found a group with the same name
+      gid = GIDT2NUM(grp->gr_gid);
+    else {
+      next_gid(1, &uid, self);
+      gid = next_gid(0, 0, self);
+    }
+  else {
+    tmp = rb_Integer(gid);
+    if ( (NUM2UINT(tmp) != 0) && ( NUM2UINT(tmp) < ((unsigned int)1000)) )
+      gid = tmp;
+    else {
+      next_gid(1, &tmp, self);
+      gid = next_gid(0, 0, self);
+    }
+  }
+
+  pwd->pw_uid   = NUM2UIDT(uid);
+  pwd->pw_gid   = NUM2GIDT(gid);
+
+  /* _launchservicesd:*:239:239::0:0:_launchservicesd:/var/empty:/usr/bin/false */
+  /* daemon:x:1:1:daemon:/usr/sbin:/bin/sh */
+  #ifdef HAVE_ST_PW_CLASS
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary, i)) )
+    tmp = setup_safe_str("");
+  pwd->pw_class = StringValuePtr( tmp );
+
+  i++;
+  #endif
+
+  #ifdef HAVE_ST_PW_CHANGE
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+    tmp = setup_safe_str("0");
+
+  pwd->pw_change = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
+  i++;
+  #endif
+
+
+  #ifdef HAVE_ST_PW_EXPIRE
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+    tmp = setup_safe_str("0");
+
+  pwd->pw_expire = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
+  i++;
+  #endif
+
+  /*  if GECOS, HOMEDIR, SHELL is empty
+   *     - GECOS defaults to USERNAME
+   *     - Assign default VALUE (Need to set config VALUES)
+   */
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+    tmp = nam;
+  pwd->pw_gecos = StringValuePtr( tmp );
+  i++;
+
+  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+    tmp = rb_str_plus(setup_safe_str("/home/"), nam);
+  pwd->pw_dir   = StringValuePtr( tmp );
+  i++;
+
+
+  /* This might be a null, indicating that the system default
+   * should be used.
+   */
+  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+    tmp = setup_safe_str(DEFAULT_SHELL);
+  pwd->pw_shell = StringValuePtr( tmp );
+
+  tmp = setup_passwd(pwd);
+
+  if (pwd)
+    free(pwd);
+  return tmp;
+}
+/* End of set/end syscalls */
+
+/* INPUT Examples:
+ * -  CURRENT USERS
+ *   - bin:x:2:2:bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/bash
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::bin:/bin:/bin/sh
+ *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * - NEW USERS
+ *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User:/home/newuser:/bin/bash
+ *   - newuser:x:::New User::/bin/bash
+ *
+ * UNIVERSAL BEHAVIOR
+ *   if USERNAME empty
+ *      - raise error
+ * CURRENT USER
+ *   iff one of uid/gid is empty
+ *      - if VAL is NOT equal to VAL in PASSWD
+ *         - if VAL is available
+ *             -  Populate VAL
+ *         - else raise error
+ *      - else Populate VAL
+ *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
+ *      - populate VALUE from PASSWD
+ * NEW USER
+ *   if UID/GID are empty
+ *     - next_uid/next_gid
+ *   else
+ *     - Test VALUE availability
+ *   then
+ *     - Populate UID/GID
+ *   if GECOS, HOMEDIR, SHELL is empty
+ *     - GECOS defaults to USERNAME
+ *     - Assign default VALUE (Need to set config VALUES)
+ *   if PASSWORD is empty
+ *      - raise Error
+ *
+ */
+VALUE eu_sgetpwent(VALUE self, VALUE str)
+{
+  VALUE ary;
+
+  eu_setpwent(self);
+  eu_setgrent(self);
+
+  ary = rb_str_split(str, ":");
+  str = rb_ary_entry(ary,0);
+
+  if (RSTRING_BLANK_P(str))
+    rb_raise(rb_eArgError,"User name must be present.");
+
+  if (getpwnam( StringValuePtr(str) ))
+    return eu_parsecurrent(str, ary);
+  else
+    return eu_parsenew(self, ary);
+}
+
+VALUE eu_sgetspent(VALUE self, VALUE nam)
+{
+#ifdef SHADOW
   struct spwd *shadow;
 
   SafeStringValue(nam);
@@ -352,46 +550,128 @@ etcutils_sgetspent(VALUE self, VALUE nam)
 	     "can't parse %s into EtcUtils::Shadow", StringValuePtr(nam));
 
   return setup_shadow(shadow);
+#else
+  return Qnil;
+#endif
 }
 
-static VALUE
-etcutils_sgetgrent(VALUE self, VALUE nam)
+// name:passwd:gid:members
+static VALUE eu_grp_cur(VALUE str, VALUE ary)
 {
-  VALUE ary, gid, mem;
   struct group *grp;
-  struct passwd *pwd;
+  grp = getgrnam( StringValuePtr(str) );
 
-  SafeStringValue(nam);
-  ary = rb_str_split(nam,":");
+  // Password
+  str = rb_ary_entry(ary,1);
+  if ( ! rb_eql( setup_safe_str(grp->gr_passwd), str) )
+    grp->gr_passwd = StringValuePtr(str);
 
-  etcutils_setgrent(self);
-  etcutils_setpwent(self);
-  nam = rb_ary_entry(ary,0);
-  SafeStringValue(nam);
-  if (grp = getgrnam( StringValuePtr(nam) ))
-    rb_ary_store(ary, 2, GIDT2NUM(grp->gr_gid) );
-  else if (pwd = getpwnam( StringValuePtr(nam) ))
-    rb_ary_store(ary, 2, GIDT2NUM(pwd->pw_gid) );
-  else  {
-    gid = rb_ary_entry(ary,2);
-    if ( NIL_P(gid) || RSTRING_LEN(gid) == 0 )
-      gid = next_gid(0, 0, self);
-    rb_ary_store(ary, 2, rb_Integer( gid ) );
+  // GID
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
+    str = rb_Integer( str );
+    if ( !getgrgid(NUM2GIDT(str)) )
+      grp->gr_gid = NUM2GIDT(str);
   }
 
-  if (NIL_P(mem = rb_ary_entry(ary,3)))
-    mem = rb_ary_new();
-  else
-    mem = rb_str_split(mem,",");
+  // Group Members
+  if ( RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ))
+    str = rb_str_new2("");
 
-  rb_ary_store(ary, 3, mem);
+  ary = rb_str_split(str,",");
+  if ( ! rb_eql( setup_safe_array(grp->gr_mem), ary) )
+    grp->gr_mem = setup_char_members( ary );
 
-  return rb_struct_alloc(self, ary);
+  return setup_group(grp);
 }
 
-static VALUE
-etcutils_sgetsgent(VALUE self, VALUE nam)
+static VALUE eu_grp_new(VALUE self, VALUE ary)
 {
+  VALUE gid, tmp, nam;
+  struct passwd *pwd;
+  struct group  *grp;
+
+  grp = malloc(sizeof *grp);
+
+  nam = rb_ary_entry(ary,0);
+  grp->gr_name = StringValuePtr(nam);
+
+  /* Setup password field
+   *   if PASSWORD is empty
+   *      - if SHADOW
+   *          - PASSWORD equals 'x'
+   *      - else
+   *          - PASSWORD equals '*'
+   */
+  tmp = rb_ary_entry(ary,1);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = PW_DEFAULT_PASS;
+
+  grp->gr_passwd = StringValuePtr(tmp);
+
+  /* Setup GID field */
+  gid = rb_ary_entry(ary,2);
+
+  /*   if GID empty
+   *     - if USERNAME found in /etc/group
+   *        - GID equals struct group->gid
+   *     - else next_gid
+   *   else
+   *     - if UID value (as GID) found in /etc/group
+   *       - next_gid
+   *     - else
+   *       - Test availability
+   */
+  if (RSTRING_BLANK_P(gid))
+    if ( (pwd = getpwnam( StringValuePtr(nam) )) ) // Found a group with the same name
+      gid = GIDT2NUM(pwd->pw_gid);
+    else
+      gid = next_gid(0, 0, self);
+  else {
+    if ( getgrgid( (gid_t) gid ) )
+      next_gid(1, &gid, self);
+    else if ( (tmp = rb_Integer( gid )) )
+      next_gid(1, &tmp, self);
+
+    gid = next_gid(0, 0, self);
+  }
+
+  grp->gr_gid   = NUM2GIDT(gid);
+
+  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,3)))
+    tmp = rb_str_new2("");
+  grp->gr_mem = setup_char_members( rb_str_split(tmp,",") );
+
+  nam = setup_group(grp);
+  free_char_members(grp->gr_mem, (int)RARRAY_LEN(rb_str_split(tmp,",")));
+
+  if (grp)
+    free(grp);
+  return nam;
+}
+
+// name:passwd:gid:members
+VALUE eu_sgetgrent(VALUE self, VALUE str)
+{
+  VALUE ary;
+
+  eu_setpwent(self);
+  eu_setgrent(self);
+
+  ary = rb_str_split(str, ":");
+  str = rb_ary_entry(ary,0);
+
+  if (RSTRING_BLANK_P(str))
+    rb_raise(rb_eArgError,"Group name must be present.");
+
+  if (getgrnam( StringValuePtr(str) ))
+    return eu_grp_cur(str, ary);
+  else
+    return eu_grp_new(self, ary);
+}
+
+VALUE eu_sgetsgent(VALUE self, VALUE nam)
+{
+#ifdef GSHADOW
   struct sgrp *gshadow;
 
   SafeStringValue(nam);
@@ -400,10 +680,16 @@ etcutils_sgetsgent(VALUE self, VALUE nam)
 	     "can't parse %s into EtcUtils::GShadow", StringValuePtr(nam));
 
   return setup_gshadow(gshadow);
+#else
+  return Qnil;
+#endif
 }
 
+
+/* fget* functions are not available on OSx/BSD based OSes */
+#ifdef HAVE_FGETGRENT
 static VALUE
-etc_fgetgrent(VALUE self, VALUE io)
+eu_fgetgrent(VALUE self, VALUE io)
 {
   struct group *grp;
 
@@ -413,9 +699,11 @@ etc_fgetgrent(VALUE self, VALUE io)
 
   return setup_group(grp);
 }
+#endif
 
+#ifdef HAVE_FGETPWENT
 static VALUE
-etc_fgetpwent(VALUE self, VALUE io)
+eu_fgetpwent(VALUE self, VALUE io)
 {
   struct passwd *pwd;
 
@@ -425,21 +713,25 @@ etc_fgetpwent(VALUE self, VALUE io)
 
   return setup_passwd(pwd);
 }
+#endif
 
+#ifdef HAVE_FGETSPENT
 static VALUE
-etcutils_fgetspent(VALUE self, VALUE io)
+eu_fgetspent(VALUE self, VALUE io)
 {
-  struct spwd *spasswd;
+  struct spwd *spwd;
 
   ensure_file(io);
-  if ( (spasswd = fgetspent(RFILE_FPTR(io))) == NULL )
+  if ( (spwd = fgetspent(RFILE_FPTR(io))) == NULL )
     return Qnil;
 
-  return setup_shadow(spasswd);
+  return setup_shadow(spwd);
 }
+#endif
 
+#ifdef HAVE_FGETSGENT
 static VALUE
-etcutils_fgetsgent(VALUE self, VALUE io)
+eu_fgetsgent(VALUE self, VALUE io)
 {
   struct sgrp *sgroup;
 
@@ -449,14 +741,14 @@ etcutils_fgetsgent(VALUE self, VALUE io)
 
   return setup_gshadow(sgroup);
 }
+#endif
 
-static VALUE
-etcutils_getpwXXX(VALUE self, VALUE v)
+VALUE eu_getpwd(VALUE self, VALUE v)
 {
   struct passwd *strt;
-  etcutils_setpwent(self);
+  eu_setpwent(self);
 
-  if (FIXNUM_P(v))
+  if ( FIXNUM_P(v) )
     strt = getpwuid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -469,13 +761,13 @@ etcutils_getpwXXX(VALUE self, VALUE v)
   return setup_passwd(strt);
 }
 
-static VALUE
-etcutils_getspXXX(VALUE self, VALUE v)
+VALUE eu_getspwd(VALUE self, VALUE v)
 {
+#ifdef SHADOW
   struct spwd *strt;
-  etcutils_setspent(self);
+  eu_setspent(self);
 
-  if (FIXNUM_P(v)) {
+  if ( FIXNUM_P(v) ) {
     struct passwd *s;
     if ( (s = getpwuid(NUM2UIDT(v))) )
       v = rb_str_new2(s->pw_name);
@@ -490,15 +782,18 @@ etcutils_getspXXX(VALUE self, VALUE v)
     return Qnil;
 
   return setup_shadow(strt);
+#else
+  return Qnil;
+#endif
 }
 
-static VALUE
-etcutils_getsgXXX(VALUE self, VALUE v)
+VALUE eu_getsgrp(VALUE self, VALUE v)
 {
+#ifdef GSHADOW
   struct sgrp *strt;
-  etcutils_setsgent(self);
+  eu_setsgent(self);
 
-  if (FIXNUM_P(v)) {
+  if ( FIXNUM_P(v) ) {
     struct group *s;
     if ( (s = getgrgid(NUM2UIDT(v))) )
       v = setup_safe_str(s->gr_name);
@@ -511,13 +806,15 @@ etcutils_getsgXXX(VALUE self, VALUE v)
     return Qnil;
 
   return setup_gshadow(strt);
+#else
+  return Qnil;
+#endif
 }
 
-static VALUE
-etcutils_getgrXXX(VALUE self, VALUE v)
+VALUE eu_getgrp(VALUE self, VALUE v)
 {
   struct group *strt;
-  etcutils_setgrent(self);
+  eu_setgrent(self);
 
   if (FIXNUM_P(v))
     strt = getgrgid(NUM2UIDT(v));
@@ -531,219 +828,78 @@ etcutils_getgrXXX(VALUE self, VALUE v)
   return setup_group(strt);
 }
 
-/**
- * EtcUtils putXXent functions
- *
- */
-
 static VALUE
-pwd_putpwent(VALUE self, VALUE io)
+eu_putpwent(VALUE mod, VALUE entry, VALUE io)
 {
-  struct passwd pwd, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
-  VALUE gecos = rb_struct_getmember(self,rb_intern("gecos"));
-  VALUE dir   = rb_struct_getmember(self,rb_intern("dir"));
-  VALUE shell  = rb_struct_getmember(self,rb_intern("shell"));
-  VALUE path = RFILE_PATH(io);
-  long i;
-
-  ensure_file(io);
-
-  rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetpwent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(tmp_str->pw_name, StringValuePtr( name ) ) )
-      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       tmp_str->pw_name,  StringValuePtr(path), i );
-  }
-
-  pwd.pw_name     = StringValueCStr( name );
-  pwd.pw_passwd   = StringValueCStr( passwd );
-  pwd.pw_uid      = NUM2UIDT( rb_struct_getmember(self,rb_intern("uid")) );
-  pwd.pw_gid      = NUM2GIDT( rb_struct_getmember(self,rb_intern("gid")) );
-  pwd.pw_gecos    = StringValueCStr( gecos );
-  pwd.pw_dir      = StringValueCStr( dir );
-  pwd.pw_shell    = StringValueCStr( shell );
-
-  if ( (putpwent(&pwd, RFILE_FPTR(io))) )
-    etcutils_errno(path);
-
-  return Qtrue;
+  return user_putpwent(entry,io);
 }
 
+#ifdef SHADOW
 static VALUE
-etc_putpwent(VALUE klass, VALUE entry, VALUE io)
+eu_putspent(VALUE mod, VALUE entry, VALUE io)
 {
-  return pwd_putpwent(entry,io);
+  return user_putspent(entry,io);
 }
-
-
-static VALUE
-spwd_putspent(VALUE self, VALUE io)
-{
-  struct spwd spasswd, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
-  VALUE path = RFILE_PATH(io);
-  long i;
-
-  ensure_file(io);
-
-  rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetspent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(tmp_str->sp_namp,StringValuePtr( name )) )
-      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       tmp_str->sp_namp,  StringValuePtr(path), i );
-  }
-
-  spasswd.sp_namp   = StringValueCStr( name );
-  spasswd.sp_pwdp   = StringValueCStr( passwd );
-  spasswd.sp_lstchg = FIX2INT( rb_struct_getmember(self,rb_intern("last_change")) );
-  spasswd.sp_min    = FIX2INT( rb_struct_getmember(self,rb_intern("min_change")) );
-  spasswd.sp_max    = FIX2INT( rb_struct_getmember(self,rb_intern("max_change")) );
-  spasswd.sp_warn   = FIX2INT( rb_struct_getmember(self,rb_intern("warn")) );
-  spasswd.sp_inact  = FIX2INT( rb_struct_getmember(self,rb_intern("inactive")) );
-  spasswd.sp_expire = FIX2INT( rb_struct_getmember(self,rb_intern("expire")) );
-  spasswd.sp_flag   = FIX2INT( rb_struct_getmember(self,rb_intern("flag")) );
-
-  if ( (putspent(&spasswd, RFILE_FPTR(io))) )
-    etcutils_errno(path);
-
-  return Qtrue;
-}
-
-static VALUE
-etcutils_putspent(VALUE klass, VALUE entry, VALUE io)
-{
-  return spwd_putspent(entry,io);
-}
-
-static VALUE
-grp_putgrent(VALUE self, VALUE io)
-{
-  struct group grp, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
-  VALUE path = RFILE_PATH(io);
-  long i;
-
-  ensure_file(io);
-
-  rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetgrent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(tmp_str->gr_name,StringValuePtr( name ) ) )
-      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       tmp_str->gr_name,  StringValuePtr(path), i );
-  }
-
-  grp.gr_name   = StringValueCStr( name );
-  grp.gr_passwd = StringValueCStr( passwd );
-  grp.gr_gid    = NUM2GIDT( rb_struct_getmember(self,rb_intern("gid")) );
-  grp.gr_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
-
-  if ( putgrent(&grp,RFILE_FPTR(io)) )
-    etcutils_errno(RFILE_PATH(io));
-
-  free_char_members(grp.gr_mem, RARRAY_LEN( rb_struct_getmember(self,rb_intern("members")) ));
-
-  return Qtrue;
-}
-
-static VALUE
-etc_putgrent(VALUE klass, VALUE entry, VALUE io)
-{
-  return grp_putgrent(entry,io);
-}
-
-
-static VALUE
-sgrp_putsgent(VALUE self, VALUE io)
-{
-  struct sgrp sgroup, *tmp_str;
-  VALUE name = rb_struct_getmember(self,rb_intern("name"));
-  VALUE passwd = rb_struct_getmember(self,rb_intern("passwd"));
-  VALUE path = RFILE_PATH(io);
-  long i;
-
-  rewind(RFILE_FPTR(io));
-  i = 0;
-  while ( (tmp_str = fgetsgent(RFILE_FPTR(io))) ) {
-    i++;
-    if ( !strcmp(SGRP_NAME(tmp_str),StringValuePtr( name ) ) )
-      rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
-	       SGRP_NAME(tmp_str),  StringValuePtr(path), i );
-  }
-
-#ifdef HAVE_ST_SG_NAMP
-  sgroup.sg_namp = StringValueCStr( name );
-#endif
-#if HAVE_ST_SG_NAME
-  sgroup.sg_name = StringValueCStr( name );
 #endif
 
-  sgroup.sg_passwd = StringValueCStr( passwd );
-  // char** members start here
-  sgroup.sg_adm    = setup_char_members( rb_struct_getmember(self,rb_intern("admins")) );
-  sgroup.sg_mem    = setup_char_members( rb_struct_getmember(self,rb_intern("members")) );
-
-  if ( putsgent(&sgroup,RFILE_FPTR(io)) )
-    etcutils_errno(RFILE_PATH(io));
-
-  free_char_members(sgroup.sg_adm, RARRAY_LEN( rb_struct_getmember(self,rb_intern("admins")) ) );
-  free_char_members(sgroup.sg_mem, RARRAY_LEN(  rb_struct_getmember(self,rb_intern("members")) ) );
-
-  return Qtrue;
+static VALUE
+eu_putgrent(VALUE mod, VALUE entry, VALUE io)
+{
+  return group_putgrent(entry,io);
 }
 
+#ifdef GSHADOW
 static VALUE
-etcutils_putsgent(VALUE klass, VALUE entry, VALUE io)
+eu_putsgent(VALUE mod, VALUE entry, VALUE io)
 {
-  return sgrp_putsgent(entry,io);
+  return group_putsgent(entry,io);
 }
+#endif
 
+#ifdef HAVE_LCKPWDF
 static VALUE
-etcutils_locked_p(VALUE self)
+eu_locked_p(VALUE self)
 {
-  if (lckpwdf())
+  int i;
+  errno = 0;
+  i = lckpwdf();
+  if (errno)
+    rb_raise(rb_eSystemCallError, "Error locking passwd files: %s", strerror(errno));
+
+  if (i)
     return Qtrue;
   else if (!ulckpwdf())
     return Qfalse;
   else
     rb_raise(rb_eIOError,"Unable to determine the locked state of password files");
 }
+#endif
 
+#ifdef HAVE_LCKPWDF
 static VALUE
-etcutils_lckpwdf(VALUE self)
+eu_lckpwdf(VALUE self)
 {
   VALUE r;
-  if ( !(r = etcutils_locked_p(self)) ) {
+  if ( !(r = eu_locked_p(self)) ) {
     if ( !(lckpwdf()) )
       r = Qtrue;
   }
   return r;
 }
+#endif
 
+#ifdef HAVE_ULCKPWDF
 static VALUE
-etcutils_ulckpwdf(VALUE self)
+eu_ulckpwdf(VALUE self)
 {
   VALUE r;
-  if ( (r = etcutils_locked_p(self)) )
+  if ( (r = eu_locked_p(self)) )
     if ( !(ulckpwdf()) )
       r = Qtrue;
   return r;
 }
 
 static int in_lock = 0;
-static int spwd_block = 0;
-static int pwd_block = 0;
-static int sgrp_block = 0;
-static int grp_block = 0;
 
 static VALUE
 lock_ensure(void)
@@ -754,9 +910,9 @@ lock_ensure(void)
 }
 
 static VALUE
-etcutils_lock(VALUE self)
+eu_lock(VALUE self)
 {
-  if (etcutils_lckpwdf(self)) {
+  if (eu_lckpwdf(self)) {
     if (rb_block_given_p()) {
       if (in_lock)
 	rb_raise(rb_eRuntimeError, "parallel lock iteration");
@@ -769,33 +925,34 @@ etcutils_lock(VALUE self)
 }
 
 static VALUE
-etcutils_unlock(VALUE self)
+eu_unlock(VALUE self)
 {
-  return etcutils_ulckpwdf(self);
+  return eu_ulckpwdf(self);
 }
+#endif
 
-static VALUE
-shadow_iterate(void)
+#ifdef SHADOW
+static int spwd_block = 0;
+
+static VALUE shadow_iterate(void)
 {
   struct spwd *shadow;
 
   setspent();
-  while ( (shadow = getspent()) ) {
+  while ( (shadow = getspent()) )
     rb_yield(setup_shadow(shadow));
-  }
+
   return Qnil;
 }
 
-static VALUE
-shadow_ensure(void)
+static VALUE shadow_ensure(void)
 {
   endspent();
   spwd_block = (int)Qfalse;
   return Qnil;
 }
 
-static void
-each_shadow(void)
+static void each_shadow(void)
 {
   if (spwd_block)
     rb_raise(rb_eRuntimeError, "parallel shadow iteration");
@@ -803,28 +960,39 @@ each_shadow(void)
   rb_ensure(shadow_iterate, 0, shadow_ensure, 0);
 }
 
-static VALUE
-pwd_iterate(void)
+VALUE eu_getspent(VALUE self)
+{
+  struct spwd *shadow;
+
+  if (rb_block_given_p())
+    each_shadow();
+  else if ( (shadow = getspent()) )
+    return setup_shadow(shadow);
+  return Qnil;
+}
+#endif
+
+#ifdef PASSWD
+static int pwd_block = 0;
+
+static VALUE pwd_iterate(void)
 {
   struct passwd *pwd;
 
-  setspent();
-  while ( (pwd = getpwent()) ) {
+  setpwent();
+  while ( (pwd = getpwent()) )
     rb_yield(setup_passwd(pwd));
-  }
   return Qnil;
 }
 
-static VALUE
-pwd_ensure(void)
+static VALUE pwd_ensure(void)
 {
   endpwent();
   pwd_block = (int)Qfalse;
   return Qnil;
 }
 
-static void
-each_passwd(void)
+static void each_passwd(void)
 {
   if (pwd_block)
     rb_raise(rb_eRuntimeError, "parallel passwd iteration");
@@ -832,9 +1000,7 @@ each_passwd(void)
   rb_ensure(pwd_iterate, 0, pwd_ensure, 0);
 }
 
-
-static VALUE
-etcutils_getpwent(VALUE self)
+VALUE eu_getpwent(VALUE self)
 {
   struct passwd *pwd;
 
@@ -844,10 +1010,12 @@ etcutils_getpwent(VALUE self)
     return setup_passwd(pwd);
   return Qnil;
 }
+#endif
 
+#ifdef GROUP
+static int grp_block = 0;
 
-static VALUE
-grp_iterate(void)
+static VALUE grp_iterate(void)
 {
   struct group *grp;
 
@@ -858,16 +1026,14 @@ grp_iterate(void)
   return Qnil;
 }
 
-static VALUE
-grp_ensure(void)
+static VALUE grp_ensure(void)
 {
   endgrent();
   grp_block = (int)Qfalse;
   return Qnil;
 }
 
-static void
-each_group(void)
+static void each_group(void)
 {
   if (grp_block)
     rb_raise(rb_eRuntimeError, "parallel group iteration");
@@ -875,9 +1041,7 @@ each_group(void)
   rb_ensure(grp_iterate, 0, grp_ensure, 0);
 }
 
-
-static VALUE
-etcutils_getgrent(VALUE self)
+VALUE eu_getgrent(VALUE self)
 {
   struct group *grp;
 
@@ -887,42 +1051,31 @@ etcutils_getgrent(VALUE self)
     return setup_group(grp);
   return Qnil;
 }
+#endif
 
+#ifdef GSHADOW
+static int sgrp_block = 0;
 
-static VALUE
-etcutils_getspent(VALUE self)
-{
-  struct spwd *shadow;
-
-  if (rb_block_given_p())
-    each_shadow();
-  else if ( (shadow = getspent()) )
-    return setup_shadow(shadow);
-  return Qnil;
-}
-
-static VALUE
-sgrp_iterate(void)
+static VALUE sgrp_iterate(void)
 {
   struct sgrp *sgroup;
 
   setsgent();
-  while ( (sgroup = getsgent()) ) {
+  while ( (sgroup = getsgent()) )
     rb_yield(setup_gshadow(sgroup));
-  }
   return Qnil;
 }
 
-static VALUE
-sgrp_ensure(void)
+static VALUE sgrp_ensure(void)
 {
+#ifdef HAVE_ENDSGENT
   endsgent();
   sgrp_block = (int)Qfalse;
+#endif
   return Qnil;
 }
 
-static void
-each_sgrp(void)
+static void each_sgrp(void)
 {
   if (sgrp_block)
     rb_raise(rb_eRuntimeError, "parallel gshadow iteration");
@@ -930,9 +1083,7 @@ each_sgrp(void)
   rb_ensure(sgrp_iterate, 0, sgrp_ensure, 0);
 }
 
-
-static VALUE
-etcutils_getsgent(VALUE self)
+VALUE eu_getsgent(VALUE self)
 {
   struct sgrp *sgroup;
 
@@ -941,242 +1092,307 @@ etcutils_getsgent(VALUE self)
   else if ( (sgroup = getsgent()) )
     return setup_gshadow(sgroup);
   return Qnil;
-
 }
+#endif
 
-static VALUE
-strt_to_entry(VALUE self)
+VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 {
-  VALUE v, ary = rb_ary_new();
-  long i;
+  size_t ln;
+  VALUE line, io;
+  char filename[] = "/tmp/etc_utilsXXXXXX";
+  int fd = mkstemp(filename);
 
-  for (i=0; i<RSTRUCT_LEN(self); i++) {
-    v = RSTRUCT_PTR(self)[i];
-    if (NIL_P(v))
-      v = setup_safe_str("");
+  if ( fd == -1 )
+    rb_raise(rb_eIOError,
+	     "Error creating temp file: %s", strerror(errno));
 
-    if (TYPE(v) == T_ARRAY)
-      rb_ary_push(ary, rb_ary_join( (v), setup_safe_str(",") ));
-    else if (TYPE(v) == T_STRING)
-      rb_ary_push(ary,v);
-    else if (FIXNUM_P(v)) {
-      if (FIX2INT(v) < 0 )
-	v = setup_safe_str("");
-      rb_ary_push(ary,v);
-    } else
-      Check_Type(v, T_STRING);
+  io = rb_file_open(filename,"w+");
+
+  line = user_to(self, io);
+  if (!rb_obj_is_kind_of(line, rb_cString)) {
+    rewind(RFILE_FPTR(io));
+    line = rb_io_gets(io);
   }
 
-  return rb_ary_join(ary, setup_safe_str(":"));
+  if ( close(fd) < 0)
+    rb_raise(rb_eIOError, "Error closing temp file: %s", strerror(errno));
+
+  rb_io_close(io);
+
+  if ( unlink(filename) < 0 )
+    rb_raise(rb_eIOError, "Error unlinking temp file: %s", strerror(errno));
+
+  if (NIL_P(line))
+    return Qnil;
+
+  ln = RSTRING_LEN(line);
+
+  if (RSTRING_PTR(line)[ln-1] == '\n')
+    rb_str_resize(line, ln-1);
+
+  return line;
 }
 
 static VALUE
-etcutils_setXXent(VALUE self)
+eu_setXXent(VALUE self)
 {
-  etcutils_setpwent(self);
-  etcutils_setgrent(self);
-  etcutils_setspent(self);
-  etcutils_setsgent(self);
+  eu_setpwent(self);
+  eu_setgrent(self);
+  eu_setspent(self);
+  eu_setsgent(self);
   return Qnil;
 }
 
 static VALUE
-etcutils_endXXent(VALUE self)
+eu_endXXent(VALUE self)
 {
-  etcutils_endpwent(self);
-  etcutils_endgrent(self);
-  etcutils_endspent(self);
-  etcutils_endsgent(self);
+  eu_endpwent(self);
+  eu_endgrent(self);
+  eu_endspent(self);
+  eu_endsgent(self);
   return Qnil;
+}
+
+static VALUE
+eu_getlogin(VALUE self)
+{
+  struct passwd *pwd;
+
+  pwd = getpwuid(geteuid());
+  return setup_passwd(pwd);
+}
+
+static VALUE
+eu_passwd_p(VALUE self)
+{
+#ifdef PASSWD
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static int
+eu_file_readable_p(const char *fname)
+{
+  if (eaccess(fname, R_OK) < 0) return Qfalse;
+  return Qtrue;
+}
+
+static VALUE
+eu_read_passwd_p(VALUE self)
+{
+  if (eu_passwd_p(self))
+    return eu_file_readable_p(PASSWD);
+  return Qfalse;
+}
+
+static VALUE
+eu_shadow_p(VALUE self)
+{
+#ifdef SHADOW
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static VALUE
+eu_read_shadow_p(VALUE self)
+{
+#ifdef SHADOW
+  if (eu_shadow_p(self))
+    return eu_file_readable_p(SHADOW);
+#endif
+  return Qfalse;
+}
+
+static VALUE
+eu_group_p(VALUE self)
+{
+#ifdef GROUP
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static VALUE
+eu_read_group_p(VALUE self)
+{
+  if (eu_group_p(self))
+    return eu_file_readable_p(GROUP);
+  return Qfalse;
+}
+
+static VALUE
+eu_gshadow_p(VALUE self)
+{
+#ifdef GSHADOW
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
+}
+
+static VALUE
+eu_read_gshadow_p(VALUE self)
+{
+#ifdef GSHADOW
+  if (eu_gshadow_p(self) && eu_file_readable_p(GSHADOW))
+    if (getsgent()) {
+      setsgent();
+      return Qtrue;
+    }
+#endif
+  return Qfalse;
+}
+
+static VALUE
+eu_lockable_p(VALUE self)
+{
+#if defined(HAVE_LCKPWDF) ||defined(HAVE_ULCKPWDF)
+  return Qtrue;
+#else
+  return Qfalse;
+#endif
 }
 
 void Init_etcutils()
 {
-  VALUE mEtcUtils = rb_define_module("EtcUtils");
-  rb_extend_object(mEtcUtils, rb_mEnumerable);
-  rb_define_const(mEtcUtils,"VERSION", setup_safe_str(EUVERSION));
+  mEtcUtils = rb_define_module("EtcUtils");
 
-  // EtcUtils Constants
-  rb_define_global_const("PASSWD", setup_safe_str(PASSWD));
-  rb_define_global_const("SHADOW", setup_safe_str(SHADOW));
-  rb_define_global_const("GROUP", setup_safe_str(GROUP));
-  rb_define_global_const("GSHADOW", setup_safe_str(GSHADOW));
+  assigned_uids = rb_ary_new();
+  assigned_gids = rb_ary_new();
+  uid_global    = UINT2NUM((uid_t)0);
+  gid_global    = UINT2NUM((gid_t)0);
 
-  // EtcUtils Functions
+  rb_global_variable(&assigned_uids);
+  rb_global_variable(&assigned_gids);
+  rb_global_variable(&uid_global);
+  rb_global_variable(&gid_global);
+
+  rb_cPasswd  = rb_define_class_under(mEtcUtils,"Passwd",rb_cObject);
+  rb_extend_object(rb_cPasswd, rb_mEnumerable);
+
+  rb_cShadow  = rb_define_class_under(mEtcUtils,"Shadow",rb_cObject);
+  rb_extend_object(rb_cShadow, rb_mEnumerable);
+
+  rb_cGroup   = rb_define_class_under(mEtcUtils,"Group",rb_cObject);
+  rb_extend_object(rb_cGroup, rb_mEnumerable);
+
+  rb_cGshadow = rb_define_class_under(mEtcUtils,"GShadow",rb_cObject);
+  rb_extend_object(rb_cGshadow, rb_mEnumerable);
+  rb_define_const(mEtcUtils, "Gshadow", rb_cGshadow);
+
+  id_name   = rb_intern("@name");
+  id_passwd = rb_intern("@passwd");
+  id_uid    = rb_intern("@uid");
+  id_gid    = rb_intern("@gid");
+
+  /* EtcUtils Constants */
+#ifdef PASSWD
+  rb_define_const(mEtcUtils, "PASSWD", setup_safe_str(PASSWD));
+#endif
+#ifdef SHADOW
+  rb_define_const(mEtcUtils, "SHADOW", setup_safe_str(SHADOW));
+#endif
+#ifdef GROUP
+  rb_define_const(mEtcUtils, "GROUP", setup_safe_str(GROUP));
+#endif
+#ifdef GSHADOW
+  rb_define_const(mEtcUtils, "GSHADOW", setup_safe_str(GSHADOW));
+#endif
+  rb_define_const(mEtcUtils, "SHELL", setup_safe_str(DEFAULT_SHELL));
+
+  /* EtcUtils Reflective Functions */
+  rb_define_module_function(mEtcUtils,"me",eu_getlogin,0);
+  rb_define_module_function(mEtcUtils,"getlogin",eu_getlogin,0);
+  /* EtcUtils Truthy Functions */
+  rb_define_module_function(mEtcUtils,"has_passwd?",eu_passwd_p,0);
+  rb_define_module_function(mEtcUtils,"read_passwd?",eu_read_passwd_p,0);
+  rb_define_module_function(mEtcUtils,"has_shadow?",eu_shadow_p,0);
+  rb_define_module_function(mEtcUtils,"read_shadow?",eu_read_shadow_p,0);
+  rb_define_module_function(mEtcUtils,"has_group?",eu_group_p,0);
+  rb_define_module_function(mEtcUtils,"read_group?",eu_read_group_p,0);
+  rb_define_module_function(mEtcUtils,"has_gshadow?",eu_gshadow_p,0);
+  rb_define_module_function(mEtcUtils,"read_gshadow?",eu_read_gshadow_p,0);
+  rb_define_module_function(mEtcUtils,"can_lockfile?",eu_lockable_p,0);
+  /* EtcUtils Module functions */
   rb_define_module_function(mEtcUtils,"next_uid",next_uid,-1);
   rb_define_module_function(mEtcUtils,"next_gid",next_gid,-1);
   rb_define_module_function(mEtcUtils,"next_uid=",next_uid,-1);
   rb_define_module_function(mEtcUtils,"next_gid=",next_gid,-1);
-  rb_define_module_function(mEtcUtils,"setXXent",etcutils_setXXent,0);
-  rb_define_module_function(mEtcUtils,"endXXent",etcutils_endXXent,0);
+  rb_define_module_function(mEtcUtils,"setXXent",eu_setXXent,0);
+  rb_define_module_function(mEtcUtils,"endXXent",eu_endXXent,0);
+  /* EtcUtils Lock Functions */
+#ifdef HAVE_LCKPWDF
+  rb_define_module_function(mEtcUtils,"lckpwdf",eu_lckpwdf,0);
+  rb_define_module_function(mEtcUtils,"lock",eu_lock,0);
+  rb_define_module_function(mEtcUtils,"locked?",eu_locked_p,0);
+#endif
+#ifdef HAVE_ULCKPWDF
+  rb_define_module_function(mEtcUtils,"ulckpwdf",eu_ulckpwdf,0);
+  rb_define_module_function(mEtcUtils,"unlock",eu_unlock,0);
+#endif
 
-  // Shadow Functions
-  rb_define_module_function(mEtcUtils,"getspent",etcutils_getspent,0);
-  rb_define_module_function(mEtcUtils,"find_spwd",etcutils_getspXXX,1);
-  rb_define_module_function(mEtcUtils,"setspent",etcutils_setspent,0);
-  rb_define_module_function(mEtcUtils,"endspent",etcutils_endspent,0);
-  rb_define_module_function(mEtcUtils,"sgetspent",etcutils_sgetspent,1);
-  rb_define_module_function(mEtcUtils,"fgetspent",etcutils_fgetspent,1);
-  rb_define_module_function(mEtcUtils,"putspent",etcutils_putspent,2);
-  // Backward compatibility
-  rb_define_module_function(mEtcUtils, "getspnam",etcutils_getspXXX,1);
 
-  // Password Functions
-  rb_define_module_function(mEtcUtils,"getpwent",etcutils_getpwent,0);
-  rb_define_module_function(mEtcUtils,"find_pwd",etcutils_getpwXXX,1);
-  rb_define_module_function(mEtcUtils,"setpwent",etcutils_setpwent,0);
-  rb_define_module_function(mEtcUtils,"endpwent",etcutils_endpwent,0);
-  rb_define_module_function(mEtcUtils,"fgetpwent",etc_fgetpwent,1);
-  rb_define_module_function(mEtcUtils,"putpwent",etc_putpwent,2);
-  // Backward compatibility
-  rb_define_module_function(mEtcUtils,"getpwnam",etcutils_getpwXXX,1);
+#ifdef SHADOW
+  /* EU::Shadow module helpers */
+  rb_define_module_function(mEtcUtils,"getspent",eu_getspent,0);
+  rb_define_module_function(mEtcUtils,"find_spwd",eu_getspwd,1);
+  rb_define_module_function(mEtcUtils,"setspent",eu_setspent,0);
+  rb_define_module_function(mEtcUtils,"endspent",eu_endspent,0);
+  rb_define_module_function(mEtcUtils,"sgetspent",eu_sgetspent,1);
+  rb_define_module_function(mEtcUtils,"fgetspent",eu_fgetspent,1);
+  rb_define_module_function(mEtcUtils,"putspent",eu_putspent,2);
+  /* Backward compatibility */
+  rb_define_module_function(mEtcUtils, "getspnam",eu_getspwd,1);
+#endif
 
-  // GShadow Functions
-  rb_define_module_function(mEtcUtils,"getsgent",etcutils_getsgent,0);
-  rb_define_module_function(mEtcUtils,"find_sgrp",etcutils_getsgXXX,1);
-  rb_define_module_function(mEtcUtils,"setsgent",etcutils_setsgent,0);
-  rb_define_module_function(mEtcUtils,"endsgent",etcutils_endsgent,0);
-  rb_define_module_function(mEtcUtils,"sgetsgent",etcutils_sgetsgent,1);
-  rb_define_module_function(mEtcUtils,"fgetsgent",etcutils_fgetsgent,1);
-  rb_define_module_function(mEtcUtils,"putsgent",etcutils_putsgent,2);
-  // Backward compatibility
-  rb_define_module_function(mEtcUtils,"getsgnam",etcutils_getsgXXX,1);
+#ifdef PASSWD
+  /* EU::Passwd module helpers */
+  rb_define_module_function(mEtcUtils,"getpwent",eu_getpwent,0);
+  rb_define_module_function(mEtcUtils,"find_pwd",eu_getpwd,1);
+  rb_define_module_function(mEtcUtils,"setpwent",eu_setpwent,0);
+  rb_define_module_function(mEtcUtils,"endpwent",eu_endpwent,0);
+  rb_define_module_function(mEtcUtils,"sgetpwent",eu_sgetpwent,1);
+#ifdef HAVE_FGETPWENT
+  rb_define_module_function(mEtcUtils,"fgetpwent",eu_fgetpwent,1);
+#endif
+  rb_define_module_function(mEtcUtils,"putpwent",eu_putpwent,2);
+  /* Backward compatibility */
+  rb_define_module_function(mEtcUtils,"getpwnam",eu_getpwd,1);
+#endif
 
-  // Group Functions
-  rb_define_module_function(mEtcUtils,"getgrent",etcutils_getgrent,0);
-  rb_define_module_function(mEtcUtils,"find_grp",etcutils_getgrXXX,1);
-  rb_define_module_function(mEtcUtils,"setgrent",etcutils_setgrent,0);
-  rb_define_module_function(mEtcUtils,"endgrent",etcutils_endgrent,0);
-  rb_define_module_function(mEtcUtils,"fgetgrent",etc_fgetgrent,1);
-  rb_define_module_function(mEtcUtils,"putgrent",etc_putgrent,2);
-  // Backward compatibility
-  rb_define_module_function(mEtcUtils,"getgrnam",etcutils_getgrXXX,1);
+#ifdef GSHADOW
+  /* EU::GShadow module helpers */
+  rb_define_module_function(mEtcUtils,"getsgent",eu_getsgent,0);
+  rb_define_module_function(mEtcUtils,"find_sgrp",eu_getsgrp,1);
+  rb_define_module_function(mEtcUtils,"setsgent",eu_setsgent,0);
+  rb_define_module_function(mEtcUtils,"endsgent",eu_endsgent,0);
+  rb_define_module_function(mEtcUtils,"sgetsgent",eu_sgetsgent,1);
+  rb_define_module_function(mEtcUtils,"fgetsgent",eu_fgetsgent,1);
+  rb_define_module_function(mEtcUtils,"putsgent",eu_putsgent,2);
+  /* Backward compatibility */
+  rb_define_module_function(mEtcUtils,"getsgnam",eu_getsgrp,1);
+#endif
 
-  // Lock Functions
-  rb_define_module_function(mEtcUtils,"lckpwdf",etcutils_lckpwdf,0);
-  rb_define_module_function(mEtcUtils,"ulckpwdf",etcutils_ulckpwdf,0);
-  rb_define_module_function(mEtcUtils,"lock",etcutils_lock,0);
-  rb_define_module_function(mEtcUtils,"unlock",etcutils_unlock,0);
-  rb_define_module_function(mEtcUtils,"locked?",etcutils_locked_p,0);
+#ifdef GROUP
+  /* EU::Group module helpers */
+  rb_define_module_function(mEtcUtils,"getgrent",eu_getgrent,0);
+  rb_define_module_function(mEtcUtils,"find_grp",eu_getgrp,1);
+  rb_define_module_function(mEtcUtils,"setgrent",eu_setgrent,0);
+  rb_define_module_function(mEtcUtils,"endgrent",eu_endgrent,0);
+  rb_define_module_function(mEtcUtils,"sgetgrent",eu_sgetgrent,1);
+#ifdef HAVE_FGETGRENT
+  rb_define_module_function(mEtcUtils,"fgetgrent",eu_fgetgrent,1);
+#endif
+  rb_define_module_function(mEtcUtils,"putgrent",eu_putgrent,2);
+  /* Backward compatibility */
+  rb_define_module_function(mEtcUtils,"getgrnam",eu_getgrp,1);
+#endif
 
-  cPasswd =  rb_struct_define(NULL,
-			      "name",
-			      "passwd",
-			      "uid",
-			      "gid",
-			      "gecos",
-			      "dir",
-			      "shell",
-			      NULL);
-  /* Define-const: Passwd
-   *
-   * Passwd is a Struct that contains the following members:
-   *
-   * name::
-   *    contains the short login name of the user as a String.
-   * passwd::
-   *    contains the encrypted password of the user as a String.
-   *    an 'x' is returned if shadow passwords are in use. An '*' is returned
-   *      if the user cannot log in using a password.
-   * uid::
-   *    contains the integer user ID (uid) of the user.
-   * gid::
-   *    contains the integer group ID (gid) of the user's primary group.
-   * dir::
-   *    contains the path to the home directory of the user as a String.
-   * gecos::
-   *     contains a longer String description of the user, such as a
-   *     full name. Some Unix systems provide structured information
-   *     in the gecos field, but this is system-dependent.
-   * shell::
-   *    contains the path to the login shell of the user as a String.
-   */
-  rb_define_const(mEtcUtils,"Passwd",cPasswd);
-  rb_set_class_path(cPasswd, mEtcUtils, "Passwd");
-  rb_define_singleton_method(cPasswd,"get",etcutils_getpwent,0);
-  rb_define_singleton_method(cPasswd,"find",etcutils_getpwXXX,1); // -1 return array
-  rb_define_singleton_method(cPasswd,"parse",etcutils_sgetpwent,1);
-  rb_define_singleton_method(cPasswd,"set",etcutils_setpwent,0);
-  rb_define_singleton_method(cPasswd,"end",etcutils_endpwent,0);
-  rb_define_singleton_method(cPasswd,"each",etcutils_getpwent,0);
-  rb_define_method(cPasswd, "fputs", pwd_putpwent, 1);
-  rb_define_method(cPasswd, "to_entry", strt_to_entry,0);
-
-  cShadow = rb_struct_define(NULL,
-			     "name",
-			     "passwd",
-			     "last_change",
-			     "min_change",
-			     "max_change",
-			     "warn",
-			     "inactive",
-			     "expire",
-			     "flag",
-			     NULL);
-
-  rb_define_const(mEtcUtils,"Shadow",cShadow);
-  rb_set_class_path(cShadow, mEtcUtils, "Shadow");
-  rb_define_const(rb_cStruct, "Shadow", cShadow); /* deprecated name */
-  rb_define_singleton_method(cShadow,"get",etcutils_getspent,0);
-  rb_define_singleton_method(cShadow,"find",etcutils_getspXXX,1);
-  rb_define_singleton_method(cShadow,"parse",etcutils_sgetspent,1);
-  rb_define_singleton_method(cShadow,"set",etcutils_setspent,0);
-  rb_define_singleton_method(cShadow,"end",etcutils_endspent,0);
-  rb_define_singleton_method(cShadow,"each",etcutils_getspent,0);
-  rb_define_method(cShadow, "fputs", spwd_putspent, 1);
-  rb_define_method(cShadow, "to_entry", strt_to_entry,0);
-
-  cGroup = rb_struct_define(NULL,
-			    "name",
-			    "passwd",
-			    "gid",
-			    "members",
-			    NULL);
-  /* Define-const: Group
-   *
-   * The struct contains the following members:
-   *
-   * name::
-   *    contains the name of the group as a String.
-   * passwd::
-   *    contains the encrypted password as a String. An 'x' is
-   *    returned if password access to the group is not available; an empty
-   *    string is returned if no password is needed to obtain membership of
-   *    the group.
-   * gid::
-   *    contains the group's numeric ID as an integer.
-   * mem::
-   *    is an Array of Strings containing the short login names of the
-   *    members of the group.
-   */
-  rb_define_class_under(mEtcUtils,"Group",cGroup);
-  rb_set_class_path(cGroup, mEtcUtils, "Group");
-  rb_define_singleton_method(cGroup,"get",etcutils_getgrent,0);
-  rb_define_singleton_method(cGroup,"find",etcutils_getgrXXX,1);
-  rb_define_singleton_method(cGroup,"parse",etcutils_sgetgrent,1);
-  rb_define_singleton_method(cGroup,"set",etcutils_setgrent,0);
-  rb_define_singleton_method(cGroup,"end",etcutils_endgrent,0);
-  rb_define_singleton_method(cGroup,"each",etcutils_getgrent,0);
-  rb_define_method(cGroup, "fputs", grp_putgrent, 1);
-  rb_define_method(cGroup, "to_entry", strt_to_entry,0);
-
-  cGShadow = rb_struct_define(NULL,
-                              "name",
-                              "passwd",
-                              "admins",
-                              "members",
-                              NULL);
-
-  rb_define_const(mEtcUtils, "GShadow",cGShadow);
-  rb_define_const(mEtcUtils, "Gshadow",cGShadow);
-  rb_set_class_path(cGShadow, mEtcUtils, "GShadow");
-  rb_define_const(rb_cStruct, "GShadow", cGShadow); /* deprecated name */
-  rb_define_singleton_method(cGShadow,"get",etcutils_getsgent,0);
-  rb_define_singleton_method(cGShadow,"find",etcutils_getsgXXX,1); //getsgent, getsguid
-  rb_define_singleton_method(cGShadow,"parse",etcutils_sgetsgent,1);
-  rb_define_singleton_method(cGShadow,"set",etcutils_setsgent,0);
-  rb_define_singleton_method(cGShadow,"end",etcutils_endsgent,0);
-  rb_define_singleton_method(cGShadow,"each",etcutils_getsgent,0);
-  rb_define_method(cGShadow, "fputs", sgrp_putsgent, 1);
-  rb_define_method(cGShadow, "to_entry", strt_to_entry,0);
+  Init_etcutils_user();
+  Init_etcutils_group();
 }

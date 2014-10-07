@@ -1,0 +1,141 @@
+EU Tests
+======
+
+Trying to clearly define what should be expected and where it is tested.
+
+
+test_eu_next_uid_next_gid
+  next_uid
+  next_gid
+  next_uid()
+  next_gid()
+  next_uid=
+  next_gid=
+
+test_etc_utils
+  me
+  getlogin
+  has_passwd?
+  has_shadow?
+  has_group?
+  has_gshadow?
+  setXXent
+  endXXent
+  getpwent
+  getgrent
+  find_pwd
+  setpwent
+  endpwent
+
+test_eu_sgetpwent
+  sgetpwent
+     find_pwd.to_entry = sgetpwent.to_entry
+     most field changes are allowed
+      - gecos, directory, passwd, shell
+     new entry with available UID/GID
+     new entry with unavailable/conflicting UID/GID
+     nil username should raise exception
+
+
+test_eu_locking
+  lckpwdf
+  ulckpwdf
+  lock
+  unlock
+  locked?
+  - root/locking
+      lock = locked?
+      unlock != locked?
+      block locking
+      lock exception handling
+  - user/locking
+      lock exception raised
+
+
+root/etc_utils.rb
+ |- root/shadow_tests
+   module tests
+    getspent
+    find_spwd
+    setspent
+    endspent
+    sgetspent
+    getspnam
+    fgetspent
+    putspent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+
+ |- root/gshadow_tests
+   module tests
+    getsgent
+    find_sgrp
+    setsgent
+    endsgent
+    sgetsgent
+    getsgnam
+    fgetsgent
+    putsgent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+    members
+    admins
+
+test_passwd_class
+   module tests
+    getpwent
+    find_pwd
+    setpwent
+    endpwent
+    sgetpwent
+    getpwnam
+    fgetpwent
+    putpwent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+
+
+test_group_class
+   module tests
+    getgrent
+    find_grp
+    setgrent
+    endgrent
+    sgetgrent
+    getgrnam
+    fgetgrent
+    putgrent
+    putspent_raises for	file/type
+   class tests
+    get
+    each
+    find
+    parse
+    set
+    end
+    members
+
+
+## TODO
+
+ DRYIFY root/etc_utils.rb
+
+ Should raise rb_eSystemCallError if system calls fail
