@@ -10,7 +10,6 @@ before_install:
   - git clean -dfx
   - "[[ $(sudo grep secure_path /etc/sudoers) ]] && export rvmsudo_secure_path=1 || export rvmsudo_secure_path=0"
 script:
-  - bundle update rake
   - bundle exec rake compile
   - bundle exec rake test
   - rvmsudo bundle exec rake test
