@@ -17,7 +17,7 @@ The #to_s method will be removed from EtcUtils in release 1.0.0 (see feature/cla
 
 Moving forward, please use #to_entry in-place of #to_s.  See [parse](#parse) for more.
 
-I apologize for the inconvience.
+I apologize for the inconvenience.
 
 
 ## Know Issues
