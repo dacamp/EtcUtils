@@ -20,7 +20,7 @@ Moving forward, please use #to_entry in-place of #to_s.  See [parse](#parse) for
 I apologize for the inconvenience.
 
 
-## Know Issues
+## Known Issues
 
 Verified on Ubuntu 12.04, nsswitch.conf is misconfigured due to a known [bug](http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=699089).  You will be unable to manipulate /etc/gshadow until this line is added to /etc/nsswitch.conf.
 
