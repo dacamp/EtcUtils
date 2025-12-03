@@ -668,44 +668,72 @@ VALUE eu_sgetspent(VALUE self, VALUE nam)
 #endif
 }
 
-// name:passwd:gid:members
+/*
+ * Update an existing group entry from parsed array.
+ * Format: name:passwd:gid[:members]
+ * Minimum 3 fields required (name, passwd, gid); members is optional.
+ * Note: Ruby's split removes trailing empty fields, so "root:x:0:" yields 3 elements.
+ */
 static VALUE eu_grp_cur(VALUE str, VALUE ary)
 {
   struct group *grp;
+  long ary_len;
+
+  /* Validate array has minimum required fields (name, passwd, gid) */
+  ary_len = RARRAY_LEN(ary);
+  if (ary_len < 3)
+    rb_raise(rb_eArgError, "group format requires at least 3 fields (name:passwd:gid), got %ld", ary_len);
+
   grp = getgrnam( StringValuePtr(str) );
 
-  // Password
-  str = rb_ary_entry(ary,1);
+  /* Password */
+  str = rb_ary_entry(ary, 1);
   if ( ! rb_eql( setup_safe_str(grp->gr_passwd), str) )
     grp->gr_passwd = StringValuePtr(str);
 
-  // GID
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
+  /* GID */
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary, 2)) ) ) {
     str = rb_Integer( str );
     if ( !getgrgid(NUM2GIDT(str)) )
       grp->gr_gid = NUM2GIDT(str);
   }
 
-  // Group Members
-  if ( RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ))
+  /* Group Members (optional 4th field) */
+  str = (ary_len > 3) ? rb_ary_entry(ary, 3) : Qnil;
+  if ( RSTRING_BLANK_P(str) )
     str = rb_str_new2("");
 
-  ary = rb_str_split(str,",");
+  ary = rb_str_split(str, ",");
   if ( ! rb_eql( setup_safe_array(grp->gr_mem), ary) )
     grp->gr_mem = setup_char_members( ary );
 
   return setup_group(grp);
 }
 
+/*
+ * Create a new group entry from parsed array.
+ * Format: name:passwd:gid[:members]
+ * Minimum 3 fields required (name, passwd, gid); members is optional.
+ * Note: Ruby's split removes trailing empty fields, so "newgroup:x:1000:" yields 3 elements.
+ */
 static VALUE eu_grp_new(VALUE self, VALUE ary)
 {
   VALUE gid, tmp, nam;
   struct passwd *pwd;
   struct group  *grp;
+  long ary_len;
+
+  /* Validate array has minimum required fields (name, passwd, gid) */
+  ary_len = RARRAY_LEN(ary);
+  if (ary_len < 3)
+    rb_raise(rb_eArgError, "group format requires at least 3 fields (name:passwd:gid), got %ld", ary_len);
 
   grp = malloc(sizeof *grp);
+  if (grp == NULL)
+    rb_memerror();
+  memset(grp, 0, sizeof *grp);
 
-  nam = rb_ary_entry(ary,0);
+  nam = rb_ary_entry(ary, 0);
   grp->gr_name = StringValuePtr(nam);
 
   /* Setup password field
@@ -715,14 +743,14 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
    *      - else
    *          - PASSWORD equals '*'
    */
-  tmp = rb_ary_entry(ary,1);
+  tmp = rb_ary_entry(ary, 1);
   if (RSTRING_BLANK_P(tmp))
     tmp = PW_DEFAULT_PASS;
 
   grp->gr_passwd = StringValuePtr(tmp);
 
   /* Setup GID field */
-  gid = rb_ary_entry(ary,2);
+  gid = rb_ary_entry(ary, 2);
 
   /*   if GID empty
    *     - if USERNAME found in /etc/group
@@ -735,7 +763,7 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
    *       - Test availability
    */
   if (RSTRING_BLANK_P(gid))
-    if ( (pwd = getpwnam( StringValuePtr(nam) )) ) // Found a group with the same name
+    if ( (pwd = getpwnam( StringValuePtr(nam) )) ) /* Found a group with the same name */
       gid = GIDT2NUM(pwd->pw_gid);
     else
       gid = next_gid(0, 0, self);
@@ -750,9 +778,11 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
 
   grp->gr_gid   = NUM2GIDT(gid);
 
-  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,3)))
+  /* Members (optional 4th field) */
+  tmp = (ary_len > 3) ? rb_ary_entry(ary, 3) : Qnil;
+  if (RSTRING_BLANK_P(tmp))
     tmp = rb_str_new2("");
-  grp->gr_mem = setup_char_members( rb_str_split(tmp,",") );
+  grp->gr_mem = setup_char_members( rb_str_split(tmp, ",") );
 
   nam = setup_group(grp);
   free_char_members(grp->gr_mem, (int)RARRAY_LEN(rb_str_split(tmp,",")));

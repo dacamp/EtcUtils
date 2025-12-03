@@ -43,14 +43,42 @@ static VALUE group_gr_put(VALUE self, VALUE io)
 }
 #endif
 
+/*
+ * Generate group entry string in standard format.
+ *
+ * Group format (4 fields):
+ *   name:passwd:gid:members
+ *
+ * This function is used as a fallback when putgrent() is not available
+ * (e.g., on macOS). All fields are nil-guarded to prevent crashes.
+ */
 static VALUE group_gr_sprintf(VALUE self)
 {
   VALUE args[5];
+  VALUE name, passwd, members_ary, members_str;
+
   args[0] = setup_safe_str("%s:%s:%s:%s\n");
-  args[1] = rb_ivar_get(self, id_name);
-  args[2] = rb_ivar_get(self, id_passwd);
-  args[3] = rb_ivar_get(self,id_gid);
-  args[4] = rb_ary_join((VALUE)rb_iv_get(self, "@members"), (VALUE)setup_safe_str(","));
+
+  /* name defaults to empty string if nil */
+  name = rb_ivar_get(self, id_name);
+  args[1] = NIL_P(name) ? setup_safe_str("") : name;
+
+  /* passwd defaults to empty string if nil */
+  passwd = rb_ivar_get(self, id_passwd);
+  args[2] = NIL_P(passwd) ? setup_safe_str("") : passwd;
+
+  /* gid is numeric - rb_f_sprintf handles nil gracefully (converts to "") */
+  args[3] = rb_ivar_get(self, id_gid);
+
+  /* members is an array - ensure it's not nil before joining */
+  members_ary = rb_iv_get(self, "@members");
+  if (NIL_P(members_ary)) {
+    members_str = setup_safe_str("");
+  } else {
+    members_str = rb_ary_join(members_ary, setup_safe_str(","));
+  }
+  args[4] = members_str;
+
   return rb_f_sprintf(5, args);
 }
 
