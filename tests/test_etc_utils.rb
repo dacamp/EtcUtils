@@ -11,12 +11,23 @@ class EtcUtilsTest < Test::Unit::TestCase
     assert_equal(EtcUtils, EU)
     assert_equal('1.0.0', EU::VERSION)
 
-    # User DB Files
-    [:passwd, :group, :shadow, :gshadow].each do |m|
+    # User DB Files - only test files that exist on this platform
+    [:passwd, :group].each do |m|
       a = m.to_s.downcase
       if File.exist?(f = "/etc/#{a}")
         assert_equal(eval("EU::#{a.upcase}"), f)
         assert EU.send("has_#{a}?"), "EtcUtils.has_#{a}? should be true."
+      end
+    end
+
+    # Shadow files only on Linux
+    unless MACOS
+      [:shadow, :gshadow].each do |m|
+        a = m.to_s.downcase
+        if File.exist?(f = "/etc/#{a}")
+          assert_equal(eval("EU::#{a.upcase}"), f)
+          assert EU.send("has_#{a}?"), "EtcUtils.has_#{a}? should be true."
+        end
       end
     end
 
@@ -50,8 +61,16 @@ class EtcUtilsTest < Test::Unit::TestCase
       EU.setXXent
     end
 
-    assert_equal(0, (EU.getpwent).uid, "EU.setXXent should reset all user DB files (/etc/passwd)")
-    assert_equal(0, (EU.getgrent).gid, "EU.setXXent should reset all user DB files (/etc/group)")
+    # On macOS, first entry may not be UID/GID 0 (Directory Services order differs)
+    if MACOS
+      first_pw = EU.getpwent
+      first_gr = EU.getgrent
+      assert_not_nil first_pw, "EU.setXXent should reset /etc/passwd"
+      assert_not_nil first_gr, "EU.setXXent should reset /etc/group"
+    else
+      assert_equal(0, (EU.getpwent).uid, "EU.setXXent should reset all user DB files (/etc/passwd)")
+      assert_equal(0, (EU.getgrent).gid, "EU.setXXent should reset all user DB files (/etc/group)")
+    end
 
     assert_nothing_raised do
       EU.endXXent
@@ -86,6 +105,13 @@ class EtcUtilsTest < Test::Unit::TestCase
 
   SG_MAP.keys.each do |xx|
     define_method("test_fget#{xx}ent_cp#{SG_MAP[xx][:file].gsub('/','_')}")  {
+      # fgetpwent/fgetgrent not available on macOS
+      if xx == :pw
+        omit("fgetpwent not available") unless HAVE_FGETPWENT
+      else
+        omit("fgetgrent not available") unless HAVE_FGETGRENT
+      end
+
       begin
         tmp_fn = "/tmp/_fget#{xx}ent_test"
         assert_nothing_raised do
@@ -108,7 +134,7 @@ class EtcUtilsTest < Test::Unit::TestCase
           end
         end
       ensure
-        FileUtils.remove_file(tmp_fn);
+        FileUtils.remove_file(tmp_fn) if File.exist?(tmp_fn)
       end
     }
 
@@ -121,7 +147,13 @@ class EtcUtilsTest < Test::Unit::TestCase
 
     m = "find_#{xx}#{SG_MAP[xx][:ext]}"
     define_method("test_#{m}_typeerr")  { assert_raise TypeError do; EtcUtils.send(m,{}); end }
-    define_method("test_#{m}_find_int") { assert_equal(EtcUtils.send(m, 0).name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}(0) should find root by ID")  }
-    define_method("test_#{m}_find_str") { assert_equal(EtcUtils.send(m, 'root').name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}('root') should find root by name") }
+    # On macOS, GID 0 is 'wheel' not 'root'
+    if xx == :gr
+      define_method("test_#{m}_find_int") { assert_equal(EtcUtils.send(m, 0).name, root_group_name, "EU.find_#{xx}#{SG_MAP[xx][:ent]}(0) should find #{root_group_name} by ID")  }
+      define_method("test_#{m}_find_str") { assert_equal(EtcUtils.send(m, root_group_name).name, root_group_name, "EU.find_#{xx}#{SG_MAP[xx][:ent]}('#{root_group_name}') should find #{root_group_name} by name") }
+    else
+      define_method("test_#{m}_find_int") { assert_equal(EtcUtils.send(m, 0).name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}(0) should find root by ID")  }
+      define_method("test_#{m}_find_str") { assert_equal(EtcUtils.send(m, 'root').name, "root", "EU.find_#{xx}#{SG_MAP[xx][:ent]}('root') should find root by name") }
+    end
   end
 end

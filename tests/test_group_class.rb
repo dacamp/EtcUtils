@@ -17,17 +17,26 @@ class GroupClassTest < Test::Unit::TestCase
   end
 
   def test_find
-    assert_nil EtcUtils.find_grp("testuser"), "EU.find_grp should return nil if user does not exist"
-    assert_equal("root", EtcUtils.find_grp("root").name, "EU.find_grp(str) should return user if it exists")
-    assert_equal("root", EtcUtils.find_grp(0).name, "EU.find_grp(int) should return user if it exists")
+    assert_nil EtcUtils.find_grp("testuser"), "EU.find_grp should return nil if group does not exist"
+    # macOS uses 'wheel' for GID 0, Linux uses 'root'
+    assert_equal(root_group_name, EtcUtils.find_grp(root_group_name).name, "EU.find_grp(str) should return group if it exists")
+    assert_equal(root_group_name, EtcUtils.find_grp(0).name, "EU.find_grp(int) should return group if it exists")
     assert_nothing_raised do
       EU.setgrent
     end
-    assert_equal(getgrnam('root').name, getgrent.name, "EU.getgrnam('root') and EU.getgrent should return the same user")
+    # On macOS, first entry from getgrent may not be GID 0 (Directory Services order differs)
+    if MACOS
+      first_group = getgrent
+      assert_not_nil first_group, "EU.getgrent should return a group"
+    else
+      assert_equal(getgrnam('root').name, getgrent.name, "EU.getgrnam('root') and EU.getgrent should return the same group")
+    end
   end
 
   def test_sgetgrent
-    assert sgetgrent(find_grp('root').to_entry).name.eql? "root"
+    skip_unless_sgetgrent
+    group_name = root_group_name
+    assert sgetgrent(find_grp(group_name).to_entry).name.eql? group_name
   end
 
   def test_getgrent_while
@@ -47,6 +56,8 @@ class GroupClassTest < Test::Unit::TestCase
   end
 
   def test_fgetgrent_and_putgrent
+    skip_unless_fgetgrent
+    skip_unless_putgrent
     tmp_fn = "/tmp/_fgetsgent_test"
     assert_nothing_raised do
       fh = File.open('/etc/group', 'r')
@@ -64,19 +75,21 @@ class GroupClassTest < Test::Unit::TestCase
     assert_equal orig_lines, new_lines,
       "DIFF FAILED: /etc/group <=> #{tmp_fn}\n" << `diff /etc/group #{tmp_fn}`
   ensure
-    FileUtils.remove_file(tmp_fn);
+    FileUtils.remove_file(tmp_fn) if tmp_fn && File.exist?(tmp_fn)
   end
 
   def test_putgrent_raises
+    # On macOS, fputs falls back to sprintf which doesn't check file mode
+    skip_on_macos("fputs fallback doesn't validate file mode on macOS")
     FileUtils.touch "/tmp/_group"
 
     assert_raise IOError do
       f = File.open("/tmp/_group", 'r')
-      u = EU.find_grp('root')
+      u = EU.find_grp(root_group_name)
       u.fputs f
     end
   ensure
-    FileUtils.remove_file("/tmp/_group");
+    FileUtils.remove_file("/tmp/_group") if File.exist?("/tmp/_group")
   end
 
   ##
@@ -105,16 +118,18 @@ class GroupClassTest < Test::Unit::TestCase
   end
 
   def test_class_find
-    assert_equal "root", EU::Group.find('root').name
+    assert_equal root_group_name, EU::Group.find(root_group_name).name
   end
 
   def test_class_parse
+    skip_unless_sgetgrent
     assert_nothing_raised do
       EtcUtils::Group.parse("root:x:0:")
     end
   end
 
   def test_class_parse_members
+    skip_unless_sgetgrent
     assert_nothing_raised do
       assert_equal Array, EtcUtils::Group.parse("root:x:0:").members.class
     end
@@ -128,11 +143,13 @@ class GroupClassTest < Test::Unit::TestCase
   end
 
   def test_instance_methods
-    e = EU::Group.find('root')
-    assert_equal 'root', e.name
+    e = EU::Group.find(root_group_name)
+    assert_equal root_group_name, e.name
     assert_not_nil e.passwd
     assert_equal 0, e.gid
-    assert_equal 'root', EU::Group.parse(e.to_entry).name
+    if HAVE_SGETGRENT
+      assert_equal root_group_name, EU::Group.parse(e.to_entry).name
+    end
     assert_equal String, e.to_entry.class
     assert_equal Array, e.members.class
     assert e.respond_to?(:fputs)

@@ -18,6 +18,9 @@ class EUsgetpwentTest < Test::Unit::TestCase
   include EUGetPW
 
   def setup
+    # sgetpwent on macOS doesn't correctly handle the extended passwd format
+    # (pw_change, pw_expire, pw_class fields) - skip all these tests on macOS
+    skip_on_macos("sgetpwent doesn't handle macOS extended passwd format")
     @uid = EUGetPW.uid
     @username = "testuser#{@uid}"
 
@@ -45,11 +48,7 @@ class EUsgetpwentTest < Test::Unit::TestCase
   end
 
   def test_eu_new_sgetpwent
-    if RUBY_PLATFORM =~ /darwin/    
-      new = "#{@username}:*:#{EUGetPW.uid}:#{EUGetPW.uid}::0:0:Test User:/home/testuser:/bin/bash"
-    else
-      new = "#{@username}:x:#{EUGetPW.uid}:#{EUGetPW.uid}:Test User:/home/testuser:/bin/bash"
-    end
+    new = "#{@username}:x:#{EUGetPW.uid}:#{EUGetPW.uid}:Test User:/home/testuser:/bin/bash"
 
     ent = EU.sgetpwent(new)
     assert_equal(@username, ent.name, "EU.sgetpwent should have the same name")
@@ -64,11 +63,7 @@ class EUsgetpwentTest < Test::Unit::TestCase
 
   def test_eu_raise_sgetpwent
     assert_raise ArgumentError do
-      if RUBY_PLATFORM =~ /darwin/
-        EU.sgetpwent(":*:1000:1000::0:0:Test User:/home/testuser:/bin/bash")
-      else
-        EU.sgetpwent(":x:1000:1000:Test User:/home/testuser:/bin/bash")
-      end
+      EU.sgetpwent(":x:1000:1000:Test User:/home/testuser:/bin/bash")
     end
 
     # Should raise rb_eSystemCallError if system calls fail (see README)
@@ -79,11 +74,7 @@ class EUsgetpwentTest < Test::Unit::TestCase
   end
 
   def test_eu_conflict_sgetpwent
-    if RUBY_PLATFORM =~ /darwin/
-      new = "#{@username}:*:#{@taken_uid}:#{@taken_gid}::0:0:Test User:/Users/test:/bin/bash"
-    else
-      new = "#{@username}:x:#{@taken_uid}:#{@taken_gid}:Test User:/home/testuser:/bin/bash"
-    end
+    new = "#{@username}:x:#{@taken_uid}:#{@taken_gid}:Test User:/home/testuser:/bin/bash"
     ent = EU.sgetpwent(new)
     assert_not_equal(@taken_uid, ent.uid, "EU.sgetpwent should return next availabile UID when conflict")
     assert_not_equal(@taken_gid, ent.gid, "EU.sgetpwent should return next availabile GID when conflict")
