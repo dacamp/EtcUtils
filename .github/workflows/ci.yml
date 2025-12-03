@@ -46,7 +46,7 @@ jobs:
         run: bundle exec rake test
 
       - name: Run tests (sudo)
-        run: sudo -E bundle exec rake test
+        run: sudo -E env "PATH=$PATH" bundle exec rake test
 
       - name: Display test summary
         if: always()
