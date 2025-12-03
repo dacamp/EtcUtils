@@ -38,6 +38,8 @@ static VALUE user_pw_put(VALUE self, VALUE io)
 {
   struct passwd pwd;
   VALUE path;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 
 #ifdef HAVE_FGETPWENT
   struct passwd *tmp_pwd;
@@ -47,13 +49,15 @@ static VALUE user_pw_put(VALUE self, VALUE io)
   Check_EU_Type(self, rb_cPasswd);
   Check_Writes(io, FMODE_WRITABLE);
 
-  path = RFILE_PATH(io);
+  GetOpenFile(io, fptr);
+  path = rb_str_new2(fptr->pathv);
+  file_ptr = rb_io_stdio_file(fptr);
 
-  rewind(RFILE_FPTR(io));
+  rewind(file_ptr);
   pwd.pw_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
 #ifdef HAVE_FGETPWENT
-  while ( (tmp_pwd = fgetpwent(RFILE_FPTR(io))) )
+  while ( (tmp_pwd = fgetpwent(file_ptr)) )
     if ( !strcmp(tmp_pwd->pw_name, pwd.pw_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_pwd->pw_name,  StringValuePtr(path), ++i );
@@ -66,7 +70,7 @@ static VALUE user_pw_put(VALUE self, VALUE io)
   pwd.pw_dir      = RSTRING_PTR(rb_iv_get(self, "@directory"));
   pwd.pw_shell    = RSTRING_PTR(rb_iv_get(self, "@shell"));
 
-  if ( (putpwent(&pwd, RFILE_FPTR(io))) )
+  if ( (putpwent(&pwd, file_ptr)) )
     eu_errno(path);
 
   return Qtrue;
@@ -109,6 +113,8 @@ VALUE user_putspent(VALUE self, VALUE io)
 #ifdef SHADOW
   struct spwd spasswd, *tmp_spwd;
   VALUE path;
+  rb_io_t *fptr;
+  FILE *file_ptr;
   long i;
   errno = 0;
   i = 0;
@@ -116,12 +122,14 @@ VALUE user_putspent(VALUE self, VALUE io)
   Check_EU_Type(self, rb_cShadow);
   Check_Writes(io, FMODE_WRITABLE);
 
-  path = RFILE_PATH(io);
+  GetOpenFile(io, fptr);
+  path = rb_str_new2(fptr->pathv);
+  file_ptr = rb_io_stdio_file(fptr);
 
-  rewind(RFILE_FPTR(io));
+  rewind(file_ptr);
   spasswd.sp_namp  = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  while ( (tmp_spwd = fgetspent(RFILE_FPTR(io))) )
+  while ( (tmp_spwd = fgetspent(file_ptr)) )
     if ( !strcmp(tmp_spwd->sp_namp, spasswd.sp_namp) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_spwd->sp_namp,  StringValuePtr(path), ++i );
@@ -135,7 +143,7 @@ VALUE user_putspent(VALUE self, VALUE io)
   spasswd.sp_expire = QFIX2INT( rb_iv_get(self, "@expire") );
   spasswd.sp_flag   = QFIX2ULONG( rb_iv_get(self, "@flag") );
 
-  if ( (putspent(&spasswd, RFILE_FPTR(io))) )
+  if ( (putspent(&spasswd, file_ptr)) )
     eu_errno(path);
 
   return Qtrue;

@@ -50,7 +50,7 @@ class ShadowTest < Test::Unit::TestCase
       }
       fh.close
     end
-    assert File.exists?(tmp_fn), "EU.fgetspent(fh) should write to fh"
+    assert File.exist?(tmp_fn), "EU.fgetspent(fh) should write to fh"
     assert FileUtils.compare_file("/etc/shadow", tmp_fn) == true,
       "DIFF FAILED: /etc/shadow <=> #{tmp_fn}\n" << `diff /etc/shadow #{tmp_fn}`
   ensure

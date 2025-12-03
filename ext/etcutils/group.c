@@ -6,6 +6,8 @@ static VALUE group_gr_put(VALUE self, VALUE io)
 {
   struct group grp;
   VALUE path;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 #ifdef HAVE_FGETGRENT
   struct group *tmp_grp;
   long i = 0;
@@ -14,13 +16,15 @@ static VALUE group_gr_put(VALUE self, VALUE io)
   Check_EU_Type(self, rb_cGroup);
   Check_Writes(io, FMODE_WRITABLE);
 
-  path = RFILE_PATH(io);
+  GetOpenFile(io, fptr);
+  path = rb_str_new2(fptr->pathv);
+  file_ptr = rb_io_stdio_file(fptr);
 
-  rewind(RFILE_FPTR(io));
+  rewind(file_ptr);
   grp.gr_name     = RSTRING_PTR(rb_ivar_get(self, id_name));
 
 #ifdef HAVE_FGETGRENT
-  while ( (tmp_grp = fgetgrent(RFILE_FPTR(io))) )
+  while ( (tmp_grp = fgetgrent(file_ptr)) )
     if ( !strcmp(tmp_grp->gr_name, grp.gr_name) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       tmp_grp->gr_name,  StringValuePtr(path), ++i );
@@ -30,8 +34,8 @@ static VALUE group_gr_put(VALUE self, VALUE io)
   grp.gr_gid    = NUM2GIDT( rb_ivar_get(self, id_gid) );
   grp.gr_mem    = setup_char_members( rb_iv_get(self, "@members") );
 
-  if ( putgrent(&grp,RFILE_FPTR(io)) )
-    eu_errno(RFILE_PATH(io));
+  if ( putgrent(&grp, file_ptr) )
+    eu_errno(path);
 
   free_char_members(grp.gr_mem, (int)RARRAY_LEN( rb_iv_get(self, "@members") ));
 
@@ -69,17 +73,21 @@ VALUE group_putsgent(VALUE self, VALUE io)
 #ifdef GSHADOW
   struct sgrp sgroup, *tmp_sgrp;
   VALUE path;
+  rb_io_t *fptr;
+  FILE *file_ptr;
   long i = 0;
 
   Check_EU_Type(self, rb_cGshadow);
   Check_Writes(io, FMODE_WRITABLE);
 
-  path = RFILE_PATH(io);
+  GetOpenFile(io, fptr);
+  path = rb_str_new2(fptr->pathv);
+  file_ptr = rb_io_stdio_file(fptr);
 
-  rewind(RFILE_FPTR(io));
+  rewind(file_ptr);
   SGRP_NAME(&sgroup)  = RSTRING_PTR(rb_ivar_get(self, id_name));
 
-  while ( (tmp_sgrp = fgetsgent(RFILE_FPTR(io))) )
+  while ( (tmp_sgrp = fgetsgent(file_ptr)) )
     if ( !strcmp(SGRP_NAME(tmp_sgrp), SGRP_NAME(&sgroup)) )
       rb_raise(rb_eArgError, "%s is already mentioned in %s:%ld",
 	       RSTRING_PTR(rb_ivar_get(self, id_name)), StringValuePtr(path), ++i );
@@ -88,8 +96,8 @@ VALUE group_putsgent(VALUE self, VALUE io)
   sgroup.sg_adm    = setup_char_members( rb_iv_get(self,"@admins") );
   sgroup.sg_mem    = setup_char_members( rb_iv_get(self, "@members") );
 
-  if ( putsgent(&sgroup,RFILE_FPTR(io)) )
-    eu_errno(RFILE_PATH(io));
+  if ( putsgent(&sgroup, file_ptr) )
+    eu_errno(path);
 
   free_char_members(sgroup.sg_adm, RARRAY_LEN( rb_iv_get(self, "@admins") ));
   free_char_members(sgroup.sg_mem, RARRAY_LEN( rb_iv_get(self, "@members") ));

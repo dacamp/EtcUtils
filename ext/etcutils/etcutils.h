@@ -64,17 +64,16 @@
 extern int eaccess(const char*, int);
 #endif
 
-#ifdef HAVE_STRUCT_RB_IO_T_PATHV
-#define RFILE_PATH(x) (RFILE(x)->fptr)->pathv
-#else
-#define RFILE_PATH(x) ( setup_safe_str( (RFILE(x)->fptr)->path ) )
-#endif
+/* Helper macros for file I/O operations - use GetOpenFile instead of direct RFILE access */
+#define GET_RFILE_PATH(io, fptr, path) do { \
+  GetOpenFile(io, fptr); \
+  path = rb_str_new2(fptr->pathv); \
+} while(0)
 
-#ifdef HAVE_RB_IO_STDIO_FILE
-#define RFILE_FPTR(x) rb_io_stdio_file( RFILE(x)->fptr )
-#else
-#define RFILE_FPTR(x) (RFILE(x)->fptr)->f
-#endif
+#define GET_RFILE_FPTR(io, fptr, file_ptr) do { \
+  GetOpenFile(io, fptr); \
+  file_ptr = rb_io_stdio_file(fptr); \
+} while(0)
 
 #ifndef RSTRING_BLANK_P
 #define RSTRING_BLANK_P(x) (NIL_P(x) || (RSTRING_LEN(x) <= 0))

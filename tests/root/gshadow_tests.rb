@@ -63,7 +63,7 @@ class GShadowTest < Test::Unit::TestCase
       }
       fh.close
     end
-    assert File.exists?(tmp_fn), "EU.fgetsgent(fh) should write to fh"
+    assert File.exist?(tmp_fn), "EU.fgetsgent(fh) should write to fh"
     assert FileUtils.compare_file("/etc/gshadow", tmp_fn) == true,
       "DIFF FAILED: /etc/gshadow <=> #{tmp_fn}\n" << `diff /etc/gshadow #{tmp_fn}`
   ensure
