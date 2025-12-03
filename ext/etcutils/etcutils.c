@@ -300,13 +300,26 @@ VALUE eu_endgrent(VALUE self)
   return Qnil;
 }
 
+/*
+ * Determine if the passwd entry is in extended (macOS) format.
+ * macOS format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell (10 fields, 9 colons)
+ * Linux format: name:passwd:uid:gid:gecos:dir:shell (7 fields, 6 colons)
+ */
+static int is_extended_passwd_format(VALUE ary)
+{
+  long len = RARRAY_LEN(ary);
+  return (len >= 10);
+}
+
 /* INPUT Examples:
- * -  CURRENT USERS
+ * -  CURRENT USERS (Linux format - 7 fields)
  *   - bin:x:2:2:bin:/bin:/bin/bash
  *   - bin:x:::bin:/bin:/bin/bash
  *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::Bin User:/bin:/bin/sh
+ *
+ * -  CURRENT USERS (macOS format - 10 fields)
+ *   - _launchservicesd:*:239:239::0:0:_launchservicesd:/var/empty:/usr/bin/false
+ *   - daemon:*:1:1::0:0:System Services:/var/root:/usr/bin/false
  *
  * CURRENT USER
  *   iff *one* of uid/gid is empty
@@ -321,7 +334,32 @@ VALUE eu_endgrent(VALUE self)
 VALUE eu_parsecurrent(VALUE str, VALUE ary)
 {
   struct passwd *pwd;
+  int extended_format;
+  int gecos_idx, dir_idx, shell_idx;
+  long ary_len;
+
   pwd = getpwnam( StringValuePtr(str) );
+
+  /* Detect format based on field count */
+  extended_format = is_extended_passwd_format(ary);
+  ary_len = RARRAY_LEN(ary);
+
+  /* Validate array has enough elements for the detected format */
+  if (extended_format) {
+    if (ary_len < 10)
+      rb_raise(rb_eArgError, "extended passwd format requires at least 10 fields, got %ld", ary_len);
+    /* macOS 10-field format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell */
+    gecos_idx = 7;
+    dir_idx = 8;
+    shell_idx = 9;
+  } else {
+    if (ary_len < 7)
+      rb_raise(rb_eArgError, "passwd format requires at least 7 fields, got %ld", ary_len);
+    /* Linux 7-field format: name:passwd:uid:gid:gecos:dir:shell */
+    gecos_idx = 4;
+    dir_idx = 5;
+    shell_idx = 6;
+  }
 
   // Password
   str = rb_ary_entry(ary,1);
@@ -341,18 +379,43 @@ VALUE eu_parsecurrent(VALUE str, VALUE ary)
       pwd->pw_gid = NUM2GIDT(str);
   }
 
+  /* Handle macOS-specific fields if present in the struct */
+#ifdef HAVE_ST_PW_CLASS
+  if (extended_format) {
+    str = rb_ary_entry(ary, 4);
+    if (!RSTRING_BLANK_P(str))
+      pwd->pw_class = StringValuePtr(str);
+  }
+#endif
+
+#ifdef HAVE_ST_PW_CHANGE
+  if (extended_format) {
+    str = rb_ary_entry(ary, 5);
+    if (!RSTRING_BLANK_P(str))
+      pwd->pw_change = (time_t)NUM2LONG(rb_Integer(str));
+  }
+#endif
+
+#ifdef HAVE_ST_PW_EXPIRE
+  if (extended_format) {
+    str = rb_ary_entry(ary, 6);
+    if (!RSTRING_BLANK_P(str))
+      pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(str));
+  }
+#endif
+
   // GECOS
-  str = rb_ary_entry(ary,4);
+  str = rb_ary_entry(ary, gecos_idx);
   if ( ! rb_eql( setup_safe_str(pwd->pw_gecos), str) )
     pwd->pw_gecos = StringValuePtr(str);
 
   // Directory
-  str = rb_ary_entry(ary,5);
+  str = rb_ary_entry(ary, dir_idx);
   if ( ! rb_eql( setup_safe_str(pwd->pw_dir), str) )
     pwd->pw_dir = StringValuePtr(str);
 
   // Shell
-  str = rb_ary_entry(ary,6);
+  str = rb_ary_entry(ary, shell_idx);
   if ( ! rb_eql( setup_safe_str(pwd->pw_shell), str) ) {
     SafeStringValue(str);
     pwd->pw_shell = StringValuePtr(str);
@@ -362,10 +425,13 @@ VALUE eu_parsecurrent(VALUE str, VALUE ary)
 }
 
 /* INPUT Examples:
- * - NEW USERS
+ * - NEW USERS (Linux format - 7 fields)
  *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
  *   - newuser:x:::New User:/home/newuser:/bin/bash
  *   - newuser:x:::New User::/bin/bash
+ *
+ * - NEW USERS (macOS format - 10 fields)
+ *   - newuser:*:1000:1000::0:0:New User:/home/newuser:/bin/bash
  *
  */
 VALUE eu_parsenew(VALUE self, VALUE ary)
@@ -373,11 +439,41 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   VALUE uid, gid, tmp, nam;
   struct passwd *pwd;
   struct group  *grp;
-  int i = 0;
+  int extended_format;
+  int gecos_idx, dir_idx, shell_idx;
+  long ary_len;
 
   pwd = malloc(sizeof *pwd);
+  if (pwd == NULL)
+    rb_memerror();
+  memset(pwd, 0, sizeof *pwd);
 
-  nam = rb_ary_entry(ary,i++);
+  /* Detect format based on field count */
+  extended_format = is_extended_passwd_format(ary);
+  ary_len = RARRAY_LEN(ary);
+
+  /* Validate array has enough elements for the detected format */
+  if (extended_format) {
+    if (ary_len < 10) {
+      free(pwd);
+      rb_raise(rb_eArgError, "extended passwd format requires at least 10 fields, got %ld", ary_len);
+    }
+    /* macOS 10-field format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell */
+    gecos_idx = 7;
+    dir_idx = 8;
+    shell_idx = 9;
+  } else {
+    if (ary_len < 7) {
+      free(pwd);
+      rb_raise(rb_eArgError, "passwd format requires at least 7 fields, got %ld", ary_len);
+    }
+    /* Linux 7-field format: name:passwd:uid:gid:gecos:dir:shell */
+    gecos_idx = 4;
+    dir_idx = 5;
+    shell_idx = 6;
+  }
+
+  nam = rb_ary_entry(ary, 0);
   pwd->pw_name = StringValuePtr(nam);
 
   /* Setup password field
@@ -387,15 +483,15 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
    *      - else
    *          - PASSWORD equals '*'
    */
-  tmp = rb_ary_entry(ary,i++);
+  tmp = rb_ary_entry(ary, 1);
   if (RSTRING_BLANK_P(tmp))
     tmp = PW_DEFAULT_PASS;
 
   pwd->pw_passwd = StringValuePtr(tmp);
 
   /* Setup UID field */
-  uid = rb_ary_entry(ary,i++);
-  gid = rb_ary_entry(ary,i++);
+  uid = rb_ary_entry(ary, 2);
+  gid = rb_ary_entry(ary, 3);
 
   /* if UID Test availability */
   if (! RSTRING_BLANK_P(uid))
@@ -432,54 +528,63 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   pwd->pw_uid   = NUM2UIDT(uid);
   pwd->pw_gid   = NUM2GIDT(gid);
 
-  /* _launchservicesd:*:239:239::0:0:_launchservicesd:/var/empty:/usr/bin/false */
-  /* daemon:x:1:1:daemon:/usr/sbin:/bin/sh */
-  #ifdef HAVE_ST_PW_CLASS
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary, i)) )
-    tmp = setup_safe_str("");
-  pwd->pw_class = StringValuePtr( tmp );
+  /* Handle macOS-specific fields (class, change, expire)
+   * These are set from input if in extended format, or defaults if not
+   */
+#ifdef HAVE_ST_PW_CLASS
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 4);
+    if (RSTRING_BLANK_P(tmp))
+      tmp = setup_safe_str("");
+    pwd->pw_class = StringValuePtr(tmp);
+  } else {
+    pwd->pw_class = "";
+  }
+#endif
 
-  i++;
-  #endif
+#ifdef HAVE_ST_PW_CHANGE
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 5);
+    if (RSTRING_BLANK_P(tmp))
+      tmp = setup_safe_str("0");
+    pwd->pw_change = (time_t)NUM2LONG(rb_Integer(tmp));
+  } else {
+    pwd->pw_change = (time_t)0;
+  }
+#endif
 
-  #ifdef HAVE_ST_PW_CHANGE
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = setup_safe_str("0");
-
-  pwd->pw_change = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
-  i++;
-  #endif
-
-
-  #ifdef HAVE_ST_PW_EXPIRE
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = setup_safe_str("0");
-
-  pwd->pw_expire = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
-  i++;
-  #endif
+#ifdef HAVE_ST_PW_EXPIRE
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 6);
+    if (RSTRING_BLANK_P(tmp))
+      tmp = setup_safe_str("0");
+    pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(tmp));
+  } else {
+    pwd->pw_expire = (time_t)0;
+  }
+#endif
 
   /*  if GECOS, HOMEDIR, SHELL is empty
    *     - GECOS defaults to USERNAME
    *     - Assign default VALUE (Need to set config VALUES)
    */
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+  tmp = rb_ary_entry(ary, gecos_idx);
+  if (RSTRING_BLANK_P(tmp))
     tmp = nam;
-  pwd->pw_gecos = StringValuePtr( tmp );
-  i++;
+  pwd->pw_gecos = StringValuePtr(tmp);
 
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+  tmp = rb_ary_entry(ary, dir_idx);
+  if (RSTRING_BLANK_P(tmp))
     tmp = rb_str_plus(setup_safe_str("/home/"), nam);
-  pwd->pw_dir   = StringValuePtr( tmp );
-  i++;
-
+  pwd->pw_dir = StringValuePtr(tmp);
 
   /* This might be a null, indicating that the system default
    * should be used.
    */
-  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
+  tmp = rb_ary_entry(ary, shell_idx);
+  if (RSTRING_BLANK_P(tmp))
     tmp = setup_safe_str(DEFAULT_SHELL);
-  pwd->pw_shell = StringValuePtr( tmp );
+  pwd->pw_shell = StringValuePtr(tmp);
 
   tmp = setup_passwd(pwd);
 

@@ -1,6 +1,7 @@
 #include "extconf.h"
 #include "ruby.h"
 #include <errno.h>
+#include <string.h>
 
 
 #define EUVERSION "0.1.5"
