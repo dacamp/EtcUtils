@@ -1,4 +1,4 @@
-EtcUtils [![Build Status](https://travis-ci.org/dacamp/etcutils.svg?branch=master)](https://travis-ci.org/dacamp/etcutils) [![Gem Version](https://badge.fury.io/rb/etcutils.svg)](https://badge.fury.io/rb/etcutils)
+EtcUtils [![CI](https://github.com/dacamp/etcutils/actions/workflows/ci.yml/badge.svg)](https://github.com/dacamp/etcutils/actions/workflows/ci.yml) [![Gem Version](https://badge.fury.io/rb/etcutils.svg)](https://badge.fury.io/rb/etcutils)
 ======
 
 Ruby C Extension for read and write access to the Linux user database.

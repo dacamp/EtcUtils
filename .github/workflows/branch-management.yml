@@ -1,0 +1,54 @@
+---
+name: Branch Management
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-merged-branch:
+    name: Delete merged branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref != 'master' && github.event.pull_request.head.ref != 'main'
+
+    steps:
+      - name: Delete merged branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const branch = context.payload.pull_request.head.ref;
+
+            // Protected branch patterns - never delete these
+            const protectedPatterns = [
+              /^master$/,
+              /^main$/,
+              /^develop$/,
+              /^release\//,
+              /^hotfix\//
+            ];
+
+            // Check if branch matches any protected pattern
+            const isProtected = protectedPatterns.some(pattern => pattern.test(branch));
+            if (isProtected) {
+              core.notice(`Skipping deletion - branch '${branch}' matches protected pattern`);
+              return;
+            }
+
+            // Only delete if it's a branch in the same repository (not a fork)
+            if (context.payload.pull_request.head.repo.full_name === context.payload.pull_request.base.repo.full_name) {
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${branch}`
+                });
+                core.notice(`Successfully deleted merged branch: ${branch}`);
+              } catch (error) {
+                core.warning(`Failed to delete branch ${branch}: ${error.message}`);
+              }
+            } else {
+              core.notice(`Skipping deletion - branch '${branch}' is from a fork`);
+            }
