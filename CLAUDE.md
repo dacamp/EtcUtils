@@ -28,8 +28,8 @@ rvmsudo bundle exec rake test
 ruby -I tests tests/test_passwd_class.rb
 ```
 
-### Travis CI
-The project uses Travis CI for testing across Ruby versions 1.9.3, 2.0, 2.1, 2.2, 2.3, and ruby-head. Tests run both as normal user and with sudo.
+### CI
+The project uses GitHub Actions for testing across Ruby versions 2.7, 3.0, 3.1, 3.2, 3.3, and ruby-head. Tests run both as normal user and with sudo.
 
 ## Architecture
 
