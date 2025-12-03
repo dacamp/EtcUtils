@@ -73,6 +73,17 @@ class EtcUtilsTest < Test::Unit::TestCase
     r = find_pwd(0).to_entry
     assert_equal(r.chomp, r, "#to_entry should not have a trailing newline")
   end
+
+  # Helper method to normalize group file lines (sort members alphabetically)
+  # The gem sorts group members when writing, so we need to normalize for comparison
+  def normalize_group_line(line)
+    parts = line.chomp.split(':')
+    return line.chomp if parts.length < 4
+    # Sort the members (4th field) alphabetically
+    parts[3] = parts[3].split(',').sort.join(',')
+    parts.join(':')
+  end
+
   SG_MAP.keys.each do |xx|
     define_method("test_fget#{xx}ent_cp#{SG_MAP[xx][:file].gsub('/','_')}")  {
       begin
@@ -85,7 +96,16 @@ class EtcUtilsTest < Test::Unit::TestCase
             end
           }
           fh.close
-          assert FileUtils.compare_file(SG_MAP[xx][:file], tmp_fn) == true, "DIFF FAILED: #{SG_MAP[xx][:file]} <=> #{tmp_fn}\n" << `diff #{SG_MAP[xx][:file]} #{tmp_fn}`
+          # For group files, normalize member order since gem sorts them alphabetically
+          if xx == :gr
+            orig_lines = File.readlines(SG_MAP[xx][:file]).map { |l| normalize_group_line(l) }
+            new_lines = File.readlines(tmp_fn).map { |l| normalize_group_line(l) }
+            assert_equal orig_lines, new_lines,
+              "DIFF FAILED: #{SG_MAP[xx][:file]} <=> #{tmp_fn}\n" << `diff #{SG_MAP[xx][:file]} #{tmp_fn}`
+          else
+            assert FileUtils.compare_file(SG_MAP[xx][:file], tmp_fn) == true,
+              "DIFF FAILED: #{SG_MAP[xx][:file]} <=> #{tmp_fn}\n" << `diff #{SG_MAP[xx][:file]} #{tmp_fn}`
+          end
         end
       ensure
         FileUtils.remove_file(tmp_fn);
