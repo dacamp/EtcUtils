@@ -48,7 +48,7 @@ class GroupClassTest < Test::Unit::TestCase
       }
       fh.close
     end
-    assert File.exists?(tmp_fn), "EU.fgetgrent(fh) should write to fh"
+    assert File.exist?(tmp_fn), "EU.fgetgrent(fh) should write to fh"
     assert FileUtils.compare_file("/etc/group", tmp_fn) == true,
       "DIFF FAILED: /etc/group <=> #{tmp_fn}\n" << `diff /etc/group #{tmp_fn}`
   ensure

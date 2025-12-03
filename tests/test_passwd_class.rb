@@ -49,7 +49,7 @@ class PasswdClassTest < Test::Unit::TestCase
       }
       fh.close
     end
-    assert File.exists?(tmp_fn), "EU.fgetpwent(fh) should write to fh"
+    assert File.exist?(tmp_fn), "EU.fgetpwent(fh) should write to fh"
     assert FileUtils.compare_file("/etc/passwd", tmp_fn) == true,
       "DIFF FAILED: /etc/passwd <=> #{tmp_fn}\n" << `diff /etc/passwd #{tmp_fn}`
   ensure

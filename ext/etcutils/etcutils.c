@@ -106,7 +106,7 @@ VALUE iv_set_time(VALUE self, VALUE v, const char *name)
   RTIME_VAL(t) = rb_time_timeval(v);
   d = ((long)t.tv_sec / 86400);
 
-  if (FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
+  if (RB_FIXNUM_P(v) && d == 0 && t.tv_sec == NUM2INT(v))
     d = NUM2INT(v);
   else if (d < 1)
     d = -1;
@@ -146,13 +146,19 @@ void ensure_eu_type(VALUE self, VALUE klass)
 
 void ensure_file(VALUE io)
 {
-  rb_io_check_initialized(RFILE(io)->fptr);
+  rb_io_t *fptr;
+  GetOpenFile(io, fptr);
+  rb_io_check_initialized(fptr);
 }
 
 void ensure_writes(VALUE io, int t)
 {
+  int mode;
   ensure_file(io);
-  if (!( ((RFILE(io)->fptr)->mode) & t ))
+  /* Get the mode using rb_io_mode() API */
+  mode = rb_io_mode(io);
+  /* Check if file is writable - FMODE_WRITABLE is 0x00000002 */
+  if (!(mode & FMODE_WRITABLE))
     rb_raise(rb_eIOError, "not opened for writing");
 }
 
@@ -184,9 +190,11 @@ char** setup_char_members(VALUE ary)
   char ** mem;
   VALUE tmp,last;
   long i,off;
+  long ary_len;
   Check_Type(ary,T_ARRAY);
 
-  mem = malloc((RARRAY_LEN(ary) + 1)*sizeof(char**));
+  ary_len = RARRAY_LEN(ary);
+  mem = malloc((ary_len + 1)*sizeof(char**));
   if (mem == NULL)
     rb_memerror();
 
@@ -194,8 +202,8 @@ char** setup_char_members(VALUE ary)
   last = rb_str_new2("");
   off = 0;
 
-  for (i = 0; i < RARRAY_LEN(ary); i++) {
-    tmp = rb_obj_as_string(RARRAY_PTR(ary)[i]);
+  for (i = 0; i < ary_len; i++) {
+    tmp = rb_obj_as_string(RARRAY_AREF(ary, i));
     if ( (rb_str_cmp(tmp, last)) ) {
       StringValueCStr(tmp);
       mem[i-off] = malloc((RSTRING_LEN(tmp))*sizeof(char*));;
@@ -214,7 +222,8 @@ char** setup_char_members(VALUE ary)
 
 VALUE setup_safe_str(const char *str)
 {
-  return rb_tainted_str_new2(str); // this already handles characters >= 0
+  // Taint mechanism was removed in Ruby 2.7+
+  return rb_str_new2(str); // this already handles characters >= 0
 }
 
 VALUE setup_safe_array(char **arr)
@@ -692,9 +701,13 @@ static VALUE
 eu_fgetgrent(VALUE self, VALUE io)
 {
   struct group *grp;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 
   ensure_file(io);
-  if ( (grp = fgetgrent(RFILE_FPTR(io))) == NULL )
+  GetOpenFile(io, fptr);
+  file_ptr = rb_io_stdio_file(fptr);
+  if ( (grp = fgetgrent(file_ptr)) == NULL )
     return Qnil;
 
   return setup_group(grp);
@@ -706,9 +719,13 @@ static VALUE
 eu_fgetpwent(VALUE self, VALUE io)
 {
   struct passwd *pwd;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 
   ensure_file(io);
-  if ( (pwd = fgetpwent(RFILE_FPTR(io))) == NULL )
+  GetOpenFile(io, fptr);
+  file_ptr = rb_io_stdio_file(fptr);
+  if ( (pwd = fgetpwent(file_ptr)) == NULL )
     return Qnil;
 
   return setup_passwd(pwd);
@@ -720,9 +737,13 @@ static VALUE
 eu_fgetspent(VALUE self, VALUE io)
 {
   struct spwd *spwd;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 
   ensure_file(io);
-  if ( (spwd = fgetspent(RFILE_FPTR(io))) == NULL )
+  GetOpenFile(io, fptr);
+  file_ptr = rb_io_stdio_file(fptr);
+  if ( (spwd = fgetspent(file_ptr)) == NULL )
     return Qnil;
 
   return setup_shadow(spwd);
@@ -734,9 +755,13 @@ static VALUE
 eu_fgetsgent(VALUE self, VALUE io)
 {
   struct sgrp *sgroup;
+  rb_io_t *fptr;
+  FILE *file_ptr;
 
   ensure_file(io);
-  if ( (sgroup = fgetsgent(RFILE_FPTR(io))) == NULL )
+  GetOpenFile(io, fptr);
+  file_ptr = rb_io_stdio_file(fptr);
+  if ( (sgroup = fgetsgent(file_ptr)) == NULL )
     return Qnil;
 
   return setup_gshadow(sgroup);
@@ -748,7 +773,7 @@ VALUE eu_getpwd(VALUE self, VALUE v)
   struct passwd *strt;
   eu_setpwent(self);
 
-  if ( FIXNUM_P(v) )
+  if ( RB_FIXNUM_P(v) )
     strt = getpwuid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -767,7 +792,7 @@ VALUE eu_getspwd(VALUE self, VALUE v)
   struct spwd *strt;
   eu_setspent(self);
 
-  if ( FIXNUM_P(v) ) {
+  if ( RB_FIXNUM_P(v) ) {
     struct passwd *s;
     if ( (s = getpwuid(NUM2UIDT(v))) )
       v = rb_str_new2(s->pw_name);
@@ -793,7 +818,7 @@ VALUE eu_getsgrp(VALUE self, VALUE v)
   struct sgrp *strt;
   eu_setsgent(self);
 
-  if ( FIXNUM_P(v) ) {
+  if ( RB_FIXNUM_P(v) ) {
     struct group *s;
     if ( (s = getgrgid(NUM2UIDT(v))) )
       v = setup_safe_str(s->gr_name);
@@ -816,7 +841,7 @@ VALUE eu_getgrp(VALUE self, VALUE v)
   struct group *strt;
   eu_setgrent(self);
 
-  if (FIXNUM_P(v))
+  if (RB_FIXNUM_P(v))
     strt = getgrgid(NUM2UIDT(v));
   else {
     SafeStringValue(v);
@@ -934,7 +959,7 @@ eu_unlock(VALUE self)
 #ifdef SHADOW
 static int spwd_block = 0;
 
-static VALUE shadow_iterate(void)
+static VALUE shadow_iterate(VALUE arg)
 {
   struct spwd *shadow;
 
@@ -945,7 +970,7 @@ static VALUE shadow_iterate(void)
   return Qnil;
 }
 
-static VALUE shadow_ensure(void)
+static VALUE shadow_ensure(VALUE arg)
 {
   endspent();
   spwd_block = (int)Qfalse;
@@ -957,7 +982,7 @@ static void each_shadow(void)
   if (spwd_block)
     rb_raise(rb_eRuntimeError, "parallel shadow iteration");
   spwd_block = (int)Qtrue;
-  rb_ensure(shadow_iterate, 0, shadow_ensure, 0);
+  rb_ensure(shadow_iterate, Qnil, shadow_ensure, Qnil);
 }
 
 VALUE eu_getspent(VALUE self)
@@ -975,7 +1000,7 @@ VALUE eu_getspent(VALUE self)
 #ifdef PASSWD
 static int pwd_block = 0;
 
-static VALUE pwd_iterate(void)
+static VALUE pwd_iterate(VALUE arg)
 {
   struct passwd *pwd;
 
@@ -985,7 +1010,7 @@ static VALUE pwd_iterate(void)
   return Qnil;
 }
 
-static VALUE pwd_ensure(void)
+static VALUE pwd_ensure(VALUE arg)
 {
   endpwent();
   pwd_block = (int)Qfalse;
@@ -997,7 +1022,7 @@ static void each_passwd(void)
   if (pwd_block)
     rb_raise(rb_eRuntimeError, "parallel passwd iteration");
   pwd_block = (int)Qtrue;
-  rb_ensure(pwd_iterate, 0, pwd_ensure, 0);
+  rb_ensure(pwd_iterate, Qnil, pwd_ensure, Qnil);
 }
 
 VALUE eu_getpwent(VALUE self)
@@ -1015,7 +1040,7 @@ VALUE eu_getpwent(VALUE self)
 #ifdef GROUP
 static int grp_block = 0;
 
-static VALUE grp_iterate(void)
+static VALUE grp_iterate(VALUE arg)
 {
   struct group *grp;
 
@@ -1026,7 +1051,7 @@ static VALUE grp_iterate(void)
   return Qnil;
 }
 
-static VALUE grp_ensure(void)
+static VALUE grp_ensure(VALUE arg)
 {
   endgrent();
   grp_block = (int)Qfalse;
@@ -1038,7 +1063,7 @@ static void each_group(void)
   if (grp_block)
     rb_raise(rb_eRuntimeError, "parallel group iteration");
   grp_block = (int)Qtrue;
-  rb_ensure(grp_iterate, 0, grp_ensure, 0);
+  rb_ensure(grp_iterate, Qnil, grp_ensure, Qnil);
 }
 
 VALUE eu_getgrent(VALUE self)
@@ -1056,7 +1081,7 @@ VALUE eu_getgrent(VALUE self)
 #ifdef GSHADOW
 static int sgrp_block = 0;
 
-static VALUE sgrp_iterate(void)
+static VALUE sgrp_iterate(VALUE arg)
 {
   struct sgrp *sgroup;
 
@@ -1066,7 +1091,7 @@ static VALUE sgrp_iterate(void)
   return Qnil;
 }
 
-static VALUE sgrp_ensure(void)
+static VALUE sgrp_ensure(VALUE arg)
 {
 #ifdef HAVE_ENDSGENT
   endsgent();
@@ -1080,7 +1105,7 @@ static void each_sgrp(void)
   if (sgrp_block)
     rb_raise(rb_eRuntimeError, "parallel gshadow iteration");
   sgrp_block = (int)Qtrue;
-  rb_ensure(sgrp_iterate, 0, sgrp_ensure, 0);
+  rb_ensure(sgrp_iterate, Qnil, sgrp_ensure, Qnil);
 }
 
 VALUE eu_getsgent(VALUE self)
@@ -1099,6 +1124,8 @@ VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 {
   size_t ln;
   VALUE line, io;
+  rb_io_t *fptr;
+  FILE *file_ptr;
   char filename[] = "/tmp/etc_utilsXXXXXX";
   int fd = mkstemp(filename);
 
@@ -1110,7 +1137,9 @@ VALUE eu_to_entry(VALUE self, VALUE(*user_to)(VALUE, VALUE))
 
   line = user_to(self, io);
   if (!rb_obj_is_kind_of(line, rb_cString)) {
-    rewind(RFILE_FPTR(io));
+    GetOpenFile(io, fptr);
+    file_ptr = rb_io_stdio_file(fptr);
+    rewind(file_ptr);
     line = rb_io_gets(io);
   }
 
@@ -1175,7 +1204,8 @@ eu_passwd_p(VALUE self)
 static int
 eu_file_readable_p(const char *fname)
 {
-  if (eaccess(fname, R_OK) < 0) return Qfalse;
+  /* Use access() on all platforms - eaccess() is Linux-specific */
+  if (access(fname, R_OK) < 0) return Qfalse;
   return Qtrue;
 }
 
