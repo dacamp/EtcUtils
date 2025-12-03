@@ -52,6 +52,17 @@ class GShadowTest < Test::Unit::TestCase
     end
   end
 
+  # Helper method to normalize gshadow file lines (sort members/admins alphabetically)
+  # The gem sorts group members when writing, so we need to normalize for comparison
+  def normalize_gshadow_line(line)
+    parts = line.chomp.split(':')
+    return line.chomp if parts.length < 4
+    # Sort the admins (3rd field) and members (4th field) alphabetically
+    parts[2] = parts[2].split(',').sort.join(',') if parts[2]
+    parts[3] = parts[3].split(',').sort.join(',') if parts[3]
+    parts.join(':')
+  end
+
   def test_fgetsgent_and_putsgent
     tmp_fn = "/tmp/_fgetsgent_test"
     assert_nothing_raised do
@@ -64,7 +75,10 @@ class GShadowTest < Test::Unit::TestCase
       fh.close
     end
     assert File.exist?(tmp_fn), "EU.fgetsgent(fh) should write to fh"
-    assert FileUtils.compare_file("/etc/gshadow", tmp_fn) == true,
+    # Compare files with normalized member order (gem sorts members alphabetically)
+    orig_lines = File.readlines("/etc/gshadow").map { |l| normalize_gshadow_line(l) }
+    new_lines = File.readlines(tmp_fn).map { |l| normalize_gshadow_line(l) }
+    assert_equal orig_lines, new_lines,
       "DIFF FAILED: /etc/gshadow <=> #{tmp_fn}\n" << `diff /etc/gshadow #{tmp_fn}`
   ensure
     FileUtils.remove_file(tmp_fn);

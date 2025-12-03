@@ -153,12 +153,11 @@ void ensure_file(VALUE io)
 
 void ensure_writes(VALUE io, int t)
 {
-  int mode;
+  rb_io_t *fptr;
   ensure_file(io);
-  /* Get the mode using rb_io_mode() API */
-  mode = rb_io_mode(io);
-  /* Check if file is writable - FMODE_WRITABLE is 0x00000002 */
-  if (!(mode & FMODE_WRITABLE))
+  GetOpenFile(io, fptr);
+  /* Check if file is writable using fptr->mode */
+  if (!(fptr->mode & FMODE_WRITABLE))
     rb_raise(rb_eIOError, "not opened for writing");
 }
 

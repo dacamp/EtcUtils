@@ -37,6 +37,15 @@ class GroupClassTest < Test::Unit::TestCase
     end
   end
 
+  # Helper method to normalize group file lines (sort members alphabetically)
+  def normalize_group_line(line)
+    parts = line.chomp.split(':')
+    return line if parts.length < 4
+    # Sort the members (4th field) alphabetically
+    parts[3] = parts[3].split(',').sort.join(',')
+    parts.join(':')
+  end
+
   def test_fgetgrent_and_putgrent
     tmp_fn = "/tmp/_fgetsgent_test"
     assert_nothing_raised do
@@ -49,7 +58,10 @@ class GroupClassTest < Test::Unit::TestCase
       fh.close
     end
     assert File.exist?(tmp_fn), "EU.fgetgrent(fh) should write to fh"
-    assert FileUtils.compare_file("/etc/group", tmp_fn) == true,
+    # Compare files with normalized member order (gem sorts members alphabetically)
+    orig_lines = File.readlines("/etc/group").map { |l| normalize_group_line(l) }
+    new_lines = File.readlines(tmp_fn).map { |l| normalize_group_line(l) }
+    assert_equal orig_lines, new_lines,
       "DIFF FAILED: /etc/group <=> #{tmp_fn}\n" << `diff /etc/group #{tmp_fn}`
   ensure
     FileUtils.remove_file(tmp_fn);

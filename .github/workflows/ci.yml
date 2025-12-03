@@ -1,0 +1,54 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Ruby ${{ matrix.ruby }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    continue-on-error: ${{ matrix.experimental }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        ruby: ['2.7', '3.0', '3.1', '3.2', '3.3']
+        experimental: [false]
+        include:
+          - os: ubuntu-latest
+            ruby: head
+            experimental: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Display Ruby version
+        run: ruby -v
+
+      - name: Compile C extension
+        run: bundle exec rake compile
+
+      - name: Run tests (user)
+        run: bundle exec rake test
+
+      - name: Run tests (sudo)
+        run: sudo -E env "PATH=$PATH" bundle exec rake test
+
+      - name: Display test summary
+        if: always()
+        run: |
+          echo "::notice::Tests completed for Ruby ${{ matrix.ruby }}"
