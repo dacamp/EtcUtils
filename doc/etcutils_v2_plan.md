@@ -1,7 +1,7 @@
 # EtcUtils v2 Design and Implementation Plan
 
-> **Status:** Draft
-> **Version:** 2.0.0-planning
+> **Status:** Final
+> **Version:** 2.0.0
 > **Last Updated:** 2025-12-04
 
 ---
@@ -11,18 +11,21 @@
 ### Goals
 
 1. **Cross-platform user/group inspection** - Provide a unified read API across Linux, macOS, and Windows
-2. **Safe write operations** - Enable user/group creation and modification on Linux (full) and macOS (limited) with explicit safety mechanisms
-3. **Ruby-idiomatic API** - Feel natural to Ruby developers with clear, discoverable methods
-4. **Explicit capability discovery** - Allow runtime queries of what operations are supported on the current platform
-5. **Fail-safe by default** - Dangerous operations require explicit opt-in; automatic backups; clear privilege requirements
+2. **Safe write operations on Linux** - Enable user/group creation and modification on Linux with explicit safety mechanisms
+3. **Read-only support on macOS and Windows** - Consistent read API; write operations intentionally deferred
+4. **Ruby-idiomatic API** - Feel natural to Ruby developers with clear, discoverable methods
+5. **Explicit capability discovery** - Allow runtime queries of what operations are supported on the current platform
+6. **Fail-safe by default** - Dangerous operations require explicit opt-in; automatic backups; clear privilege requirements
+7. **Dry-run support** - Preview changes before writing to disk
 
 ### Non-Goals
 
 1. **Password hashing or encryption** - Use dedicated libraries (bcrypt, argon2). EtcUtils accepts only pre-hashed passwords.
 2. **LDAP/Active Directory integration** - Out of scope. Use `net-ldap` for directory services.
 3. **Windows write operations** - Fundamentally different security model (SAM database). Windows is read-only.
-4. **Full identity lifecycle management** - No home directory creation, quota setup, SSH key management, or PAM configuration.
-5. **NSS/SSSD backend queries** - Focus on local databases only; merged views from multiple sources are out of scope.
+4. **macOS write operations in v2.0.0** - Deferred to future release; see Future Work section.
+5. **Full identity lifecycle management** - No home directory creation, quota setup, SSH key management, or PAM configuration.
+6. **NSS/SSSD backend queries** - Focus on local databases only; merged views from multiple sources are out of scope.
 
 ---
 
@@ -79,15 +82,15 @@ module EtcUtils
   module Platform
     def self.os                    # => :linux, :darwin, :windows
     def self.supports?(feature)    # => true/false
-    def self.capabilities          # => Hash
+    def self.capabilities          # => Hash (nested structure, see below)
   end
 
   # Write operations (explicit namespace)
   module Write
-    def self.passwd(backup: true, &block)
-    def self.group(backup: true, &block)
-    def self.shadow(backup: true, &block)
-    def self.gshadow(backup: true, &block)
+    def self.passwd(backup: true, dry_run: false, &block)
+    def self.group(backup: true, dry_run: false, &block)
+    def self.shadow(backup: true, dry_run: false, &block)
+    def self.gshadow(backup: true, dry_run: false, &block)
   end
 
   # File locking (Linux only)
@@ -99,22 +102,163 @@ end
 EU = EtcUtils
 ```
 
+### Collections API
+
+Collections include `Enumerable` and provide convenient lookup methods:
+
+```ruby
+class UserCollection
+  include Enumerable
+
+  # Lookup by identifier - returns nil if not found
+  def get(identifier)
+    case identifier
+    when Integer then find_by_uid(identifier)
+    when String  then find_by_name(identifier)
+    else raise ArgumentError, "Expected String or Integer"
+    end
+  end
+  alias [] get
+
+  # Lookup with exception on not found (like Hash#fetch)
+  def fetch(identifier, *default, &block)
+    result = get(identifier)
+    return result if result
+    return yield(identifier) if block_given?
+    return default.first unless default.empty?
+    raise NotFoundError, "No user found for: #{identifier.inspect}"
+  end
+
+  # Standard Enumerable - block-based search preserved
+  def each(&block)
+    # yields User objects
+  end
+end
+```
+
+**Usage examples:**
+
+```ruby
+# By name (String)
+EtcUtils.users['root']           # => User or nil
+EtcUtils.users.get('root')       # => User or nil
+EtcUtils.users.fetch('root')     # => User or raises NotFoundError
+
+# By UID (Integer)
+EtcUtils.users[0]                # => User (root) or nil
+EtcUtils.users[1000]             # => User or nil
+
+# With default value
+EtcUtils.users.fetch('missing', nil)  # => nil
+EtcUtils.users.fetch('missing') { |name| create_user(name) }
+
+# Enumerable#find preserved for block-based search
+EtcUtils.users.find { |u| u.shell == '/bin/bash' }
+```
+
+### Platform Capabilities Structure
+
+The `Platform.capabilities` method returns a nested hash:
+
+```ruby
+# Linux example
+EtcUtils::Platform.capabilities
+# => {
+#      os: :linux,
+#      os_version: '6.1.0',
+#      etcutils_version: '2.0.0',
+#      users:   { read: true, write: true },
+#      groups:  { read: true, write: true },
+#      shadow:  { read: true, write: true },
+#      gshadow: { read: true, write: true },
+#      locking: true
+#    }
+
+# macOS example
+# => {
+#      os: :darwin,
+#      os_version: '23.0.0',
+#      etcutils_version: '2.0.0',
+#      users:   { read: true, write: false },
+#      groups:  { read: true, write: false },
+#      shadow:  { read: false, write: false },
+#      gshadow: { read: false, write: false },
+#      locking: false
+#    }
+
+# Windows example
+# => {
+#      os: :windows,
+#      os_version: '10.0.19041',
+#      etcutils_version: '2.0.0',
+#      users:   { read: true, write: false },
+#      groups:  { read: true, write: false },
+#      shadow:  { read: false, write: false },
+#      gshadow: { read: false, write: false },
+#      locking: false
+#    }
+```
+
+### Dry Run Support
+
+Write operations support a `dry_run:` keyword that validates changes without writing to disk:
+
+```ruby
+result = EtcUtils::Write.passwd(dry_run: true) do |users|
+  users + [new_user]
+end
+
+result.valid?       # => true (validation passed)
+result.content      # => String (file contents that would be written)
+result.path         # => "/etc/passwd"
+result.backup_path  # => "/etc/passwd-"
+result.diff         # => String (unified diff from current file)
+```
+
+When `dry_run: true`:
+- All parsing and validation runs normally
+- `ValidationError` raised if input is invalid
+- No files are modified on disk
+- Returns a `DryRunResult` object with the proposed changes
+
 ### Value Objects
 
 ```ruby
 # User entry (from /etc/passwd)
 EtcUtils::User = Struct.new(
   :name, :passwd, :uid, :gid, :gecos, :dir, :shell,
-  # macOS-specific (nil on Linux)
-  :last_pw_change, :access_class, :expire,
+  # Platform-specific fields (nil when not applicable)
+  :pw_change,     # macOS: last password change time
+  :pw_expire,     # macOS: account expiration
+  :pw_class,      # macOS: login class
+  :sid,           # Windows: Security Identifier string
   keyword_init: true
-)
+) do
+  alias home dir
+
+  # Returns hash of platform-specific fields for current OS
+  def platform_fields
+    case EtcUtils::Platform.os
+    when :windows then { sid: sid }
+    when :darwin  then { pw_change: pw_change, pw_expire: pw_expire, pw_class: pw_class }
+    else {}
+    end
+  end
+end
 
 # Group entry (from /etc/group)
 EtcUtils::Group = Struct.new(
   :name, :passwd, :gid, :members,  # members is Array<String>
+  :sid,           # Windows: Security Identifier string
   keyword_init: true
-)
+) do
+  def platform_fields
+    case EtcUtils::Platform.os
+    when :windows then { sid: sid }
+    else {}
+    end
+  end
+end
 
 # Shadow entry (from /etc/shadow, Linux only)
 EtcUtils::Shadow = Struct.new(
@@ -137,9 +281,49 @@ module EtcUtils
   class Error < StandardError; end
 
   class NotFoundError < Error; end
-  class PermissionError < Error; end
+
+  # PermissionError includes platform-specific hints
+  class PermissionError < Error
+    attr_reader :path, :operation, :required_privilege
+
+    def initialize(message = nil, path: nil, operation: nil, required_privilege: nil)
+      @path = path
+      @operation = operation
+      @required_privilege = required_privilege
+      super(message || build_message)
+    end
+
+    private
+
+    def build_message
+      base = "Permission denied"
+      base += " #{operation}" if operation
+      base += " #{path}" if path
+      "#{base}. #{platform_hint}"
+    end
+
+    def platform_hint
+      case EtcUtils::Platform.os
+      when :linux
+        "Try running with sudo."
+      when :darwin
+        "Try running with sudo or use native Directory Services tools."
+      when :windows
+        "Write operations are not supported on Windows. See documentation for alternatives."
+      else
+        "Check your permissions."
+      end
+    end
+  end
+
   class UnsupportedError < Error; end
-  class LockError < Error; end
+  class LockError < Error
+    attr_reader :timeout
+    def initialize(message = nil, timeout: nil)
+      @timeout = timeout
+      super(message)
+    end
+  end
   class ValidationError < Error; end
   class ConcurrentModificationError < Error; end
 end
@@ -152,23 +336,31 @@ end
 ```ruby
 require 'etcutils'
 
-# Find a user
-user = EtcUtils.users.find('root')
+# Get a user by name (bracket syntax)
+user = EtcUtils.users['root']
 puts user.name      # => "root"
 puts user.uid       # => 0
 puts user.home      # => "/root"
 
-# Find by UID
-user = EtcUtils.users.find(1000)
+# Get by UID
+user = EtcUtils.users[1000]
+
+# Fetch raises if not found
+user = EtcUtils.users.fetch('root')     # => User
+user = EtcUtils.users.fetch('missing')  # => raises NotFoundError
+
+# Fetch with default
+user = EtcUtils.users.fetch('missing', nil)  # => nil
 
 # Iterate all users
 EtcUtils.users.each { |u| puts u.name }
 
-# Filter with Enumerable
+# Filter with Enumerable (find with block preserved)
 humans = EtcUtils.users.select { |u| u.uid >= 1000 }
+bash_user = EtcUtils.users.find { |u| u.shell == '/bin/bash' }
 
 # Groups work the same way
-group = EtcUtils.groups.find('wheel')
+group = EtcUtils.groups['wheel']
 puts group.members  # => ["root"]
 ```
 
@@ -187,6 +379,12 @@ new_user = EtcUtils::User.new(
   dir: '/home/deploy',
   shell: '/bin/bash'
 )
+
+# Preview changes with dry_run (no disk writes)
+result = EtcUtils::Write.passwd(dry_run: true) do |users|
+  users + [new_user]
+end
+puts result.diff  # Shows unified diff of proposed changes
 
 # Write with automatic backup and locking
 EtcUtils.lock do
@@ -217,22 +415,29 @@ if EtcUtils::Platform.supports?(:shadow)
   EtcUtils.shadows.each { |s| puts s.name }
 end
 
-if EtcUtils::Platform.supports?(:write)
+if EtcUtils::Platform.supports?(:users_write)
   # Proceed with modifications
 else
   puts "Write operations not supported on this platform"
 end
 
-# Get full capabilities
+# Get full capabilities (nested structure)
 caps = EtcUtils::Platform.capabilities
 # => {
 #      os: :linux,
-#      passwd:  { read: true, write: true },
+#      os_version: '6.1.0',
+#      etcutils_version: '2.0.0',
+#      users:   { read: true, write: true },
+#      groups:  { read: true, write: true },
 #      shadow:  { read: true, write: true },
-#      group:   { read: true, write: true },
 #      gshadow: { read: true, write: true },
 #      locking: true
 #    }
+
+# Check nested capabilities
+if caps[:users][:write]
+  # Can write users on this platform
+end
 ```
 
 #### Error Handling
@@ -363,38 +568,45 @@ end
 3. Existing battle-tested code from v1
 4. Performance for large user databases (LDAP-backed systems)
 
-#### macOS (FFI)
+#### macOS (FFI) - Read-Only in v2.0.0
 
-**Implementation:** FFI to libc functions + `dscl` for limited writes
+**Implementation:** FFI to libc functions (read-only)
 
 **APIs used:**
 - `getpwent`, `getpwnam`, `getpwuid`, `setpwent`, `endpwent`
 - `getgrent`, `getgrnam`, `getgrgid`, `setgrent`, `endgrent`
-- `dscl` command-line tool for write operations (Directory Services)
 
 **Capabilities:**
 ```ruby
 {
-  read_passwd: true,  write_passwd: false,  # dscl support pending
-  read_shadow: false, write_shadow: false,
-  read_group: true,   write_group: false,   # dscl support pending
-  read_gshadow: false, write_gshadow: false,
+  os: :darwin,
+  os_version: '23.0.0',
+  etcutils_version: '2.0.0',
+  users:   { read: true, write: false },
+  groups:  { read: true, write: false },
+  shadow:  { read: false, write: false },
+  gshadow: { read: false, write: false },
   locking: false
 }
 ```
 
-**macOS-specific fields:**
-- `pw_change` - last password change time
-- `pw_expire` - account expiration
-- `pw_class` - login class
+**macOS-specific fields on User:**
+- `pw_change` - last password change time (nil on other platforms)
+- `pw_expire` - account expiration (nil on other platforms)
+- `pw_class` - login class (nil on other platforms)
+
+**Why read-only in v2.0.0:**
+- macOS user management via `dscl` is fundamentally different from Linux file manipulation
+- `dscl` involves process spawning, output parsing, and different error semantics
+- No atomic operation guarantees with Directory Services
+- Write support deferred to post-2.0 release (see Future Work section)
 
 **Why FFI over C extension:**
 - Simple, stable APIs
-- No special locking mechanism
+- No special locking mechanism needed
 - Avoids maintaining separate macOS C extension
-- Write operations use external `dscl` command anyway
 
-#### Windows (FFI)
+#### Windows (FFI) - Read-Only
 
 **Implementation:** FFI to Win32 APIs (read-only)
 
@@ -408,12 +620,28 @@ end
 **Capabilities:**
 ```ruby
 {
-  read_passwd: true,  write_passwd: false,
-  read_shadow: false, write_shadow: false,
-  read_group: true,   write_group: false,
-  read_gshadow: false, write_gshadow: false,
+  os: :windows,
+  os_version: '10.0.19041',
+  etcutils_version: '2.0.0',
+  users:   { read: true, write: false },
+  groups:  { read: true, write: false },
+  shadow:  { read: false, write: false },
+  gshadow: { read: false, write: false },
   locking: false
 }
+```
+
+**Windows-specific fields:**
+- `sid` - Security Identifier string (e.g., "S-1-5-21-..."). Available on both User and Group objects. Returns `nil` on other platforms.
+
+```ruby
+# Example Windows user access
+user = EtcUtils.users['Administrator']
+user.sid        # => "S-1-5-21-1234567890-1234567890-1234567890-500"
+user.uid        # => 500 (RID portion of SID)
+
+# Platform fields helper
+user.platform_fields  # => { sid: "S-1-5-21-..." }
 ```
 
 **Why read-only:**
@@ -476,11 +704,11 @@ end
 |-----------|-------|-------|---------|
 | Read passwd/group | User | User | User |
 | Read shadow/gshadow | Root | N/A | N/A |
-| Write passwd/group | Root | Admin* | N/A |
+| Write passwd/group | Root | N/A (v2.0.0) | N/A |
 | Write shadow/gshadow | Root | N/A | N/A |
 | File locking | Root | N/A | N/A |
 
-*macOS writes via dscl - pending implementation
+**Note:** macOS and Windows are read-only in v2.0.0. See Future Work for planned enhancements.
 
 ---
 
@@ -668,7 +896,8 @@ GitHub Actions Linux runners have passwordless sudo.
 
 | v1 API | v2 API |
 |--------|--------|
-| `EtcUtils::Passwd.find(x)` | `EtcUtils.users.find(x)` |
+| `EtcUtils::Passwd.find(x)` | `EtcUtils.users[x]` or `EtcUtils.users.get(x)` |
+| `EtcUtils::Passwd.find(x)` (raise on missing) | `EtcUtils.users.fetch(x)` |
 | `EtcUtils::Passwd.get { }` | `EtcUtils.users.each { }` |
 | `EtcUtils::Passwd.parse(s)` | `EtcUtils::User.parse(s)` |
 | `passwd.to_entry` | `user.to_entry` |
@@ -676,11 +905,17 @@ GitHub Actions Linux runners have passwordless sudo.
 | `EtcUtils.lock { }` | `EtcUtils.lock { }` (unchanged) |
 | `EtcUtils.next_uid` | `EtcUtils.next_uid` (unchanged) |
 | `EtcUtils.has_shadow?` | `EtcUtils::Platform.supports?(:shadow)` |
-| `EU::Shadow.find(x)` | `EtcUtils.shadows.find(x)` |
+| `EU::Shadow.find(x)` | `EtcUtils.shadows[x]` or `EtcUtils.shadows.get(x)` |
+
+**Key API Changes:**
+- Collections use `get`/`[]` (returns nil) and `fetch` (raises) instead of `find`
+- `find` with a block still works for Enumerable-style searches
+- Platform capabilities now use nested hash structure
+- Write operations support `dry_run: true` for previewing changes
 
 ---
 
-## Appendix B: Platform Capability Matrix
+## Appendix B: Platform Capability Matrix (v2.0.0)
 
 | Feature | Linux | macOS | Windows |
 |---------|-------|-------|---------|
@@ -688,12 +923,16 @@ GitHub Actions Linux runners have passwordless sudo.
 | Read groups | Yes | Yes | Yes |
 | Read shadow | Yes (root) | No | No |
 | Read gshadow | Yes (root) | No | No |
-| Write users | Yes (root) | Pending | No |
-| Write groups | Yes (root) | Pending | No |
+| Write users | Yes (root) | **No** | No |
+| Write groups | Yes (root) | **No** | No |
 | Write shadow | Yes (root) | No | No |
 | Write gshadow | Yes (root) | No | No |
 | File locking | Yes | No | No |
-| Extended passwd fields | No | Yes | No |
+| Dry run support | Yes | N/A | N/A |
+| Extended passwd fields | No | Yes (`pw_change`, `pw_expire`, `pw_class`) | No |
+| SID field | No | No | Yes |
+
+**Note:** macOS write support is deferred to post-2.0 release (see Future Work).
 
 ---
 
@@ -709,10 +948,63 @@ GitHub Actions Linux runners have passwordless sudo.
 
 ## Appendix D: Decision Log
 
-| Decision | Rationale |
-|----------|-----------|
-| Use Struct over Data | Ruby 3.2+ only for Data; Struct works on 3.0+ |
-| C extension for Linux, FFI for others | lckpwdf requires proper cleanup; FFI simpler elsewhere |
-| Windows read-only | Fundamentally different security model; recommend dedicated tools |
-| Block-based write API | Makes dangerous operations explicit; shows full file context |
-| Capability-first design | Platforms differ significantly; users need runtime introspection |
+| Decision | Rationale | Status |
+|----------|-----------|--------|
+| Use Struct over Data | Ruby 3.2+ only for Data; Struct works on 3.0+ | Locked |
+| C extension for Linux, FFI for others | lckpwdf requires proper cleanup; FFI simpler elsewhere | Locked |
+| Windows read-only | Fundamentally different security model; recommend dedicated tools | Locked |
+| **macOS read-only in v2.0.0** | dscl-based writes are complex and risky; safer to ship read-only first | **Locked** |
+| Block-based write API | Makes dangerous operations explicit; shows full file context | Locked |
+| Capability-first design | Platforms differ significantly; users need runtime introspection | Locked |
+| **Collections use `get`/`fetch`, not `find`** | Avoids conflict with Enumerable#find; follows Hash#fetch convention | **Locked** |
+| **Capabilities use nested hashes** | Structure like `users: { read: true, write: true }` is extensible and consistent | **Locked** |
+| **Write APIs support `dry_run:`** | Enables preview of changes before disk writes; returns DryRunResult object | **Locked** |
+| **PermissionError includes platform hints** | Provides actionable guidance specific to each OS | **Locked** |
+| **Windows SID as direct attribute** | `user.sid` is cleaner than nested hash; `platform_fields` helper for introspection | **Locked** |
+
+---
+
+## Appendix E: Future Work (Post-2.0)
+
+### macOS Write Support via dscl
+
+**Planned for:** v2.1.0 or later
+
+macOS write operations using Directory Services (`dscl`) are intentionally deferred from v2.0.0:
+
+```ruby
+# Future API (not in v2.0.0)
+EtcUtils::Write.passwd do |users|
+  users + [new_user]
+end  # Would use dscl commands internally
+```
+
+**Challenges to address:**
+- Process spawning and output parsing for `dscl` commands
+- Different error semantics vs. file-based writes
+- No file locking equivalent
+- Rollback complexity if partial failures occur
+- Testing on multiple macOS versions
+
+**Prerequisite:** Thorough investigation of dscl behavior across macOS versions and Directory Services configurations.
+
+### Windows Write Support
+
+**Planned for:** v2.2.0 or later (if at all)
+
+Windows write operations require Win32 APIs:
+- `NetUserAdd` / `NetUserSetInfo` for user management
+- `NetLocalGroupAdd` / `NetLocalGroupSetInfo` for group management
+- UAC privilege elevation handling
+
+**Challenges:**
+- Fundamentally different from Linux file operations
+- Complex privilege model (Administrator vs. elevated)
+- May be better served by dedicated Windows tools or gems
+
+### Additional Future Enhancements
+
+- **Audit logging** - Integrate with system audit facilities
+- **SELinux context support** - Read/write SELinux user contexts
+- **ACL support** - Access control list management
+- **Batch operations** - Transactional multi-file updates
