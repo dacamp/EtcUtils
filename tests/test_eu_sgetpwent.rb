@@ -77,13 +77,14 @@ class EUsgetpwentTest < Test::Unit::TestCase
     new = "#{@username}:x:#{@taken_uid}:#{@taken_gid}:Test User:/home/testuser:/bin/bash"
     ent = EU.sgetpwent(new)
     assert_not_equal(@taken_uid, ent.uid, "EU.sgetpwent should return next availabile UID when conflict")
-    # Note: GIDs < 1000 are system GIDs and are preserved as-is per the implementation
-    # Only non-system GIDs (>= 1000) trigger conflict resolution
-    if @taken_gid >= 1000
-      assert_not_equal(@taken_gid, ent.gid, "EU.sgetpwent should return next availabile GID when conflict (non-system GID)")
+    # GID behavior depends on the value:
+    # - GID 0: NOT preserved (gets next available GID)
+    # - GIDs 1-999: preserved (system GIDs)
+    # - GIDs >= 1000: NOT preserved (gets next available GID)
+    if @taken_gid > 0 && @taken_gid < 1000
+      assert_equal(@taken_gid, ent.gid, "EU.sgetpwent preserves system GIDs (1-999)")
     else
-      # System GIDs are preserved - this is intentional behavior
-      assert_equal(@taken_gid, ent.gid, "EU.sgetpwent preserves system GIDs (< 1000)")
+      assert_not_equal(@taken_gid, ent.gid, "EU.sgetpwent should return next available GID when conflict (GID 0 or >= 1000)")
     end
   end
 end
