@@ -300,186 +300,144 @@ VALUE eu_endgrent(VALUE self)
   return Qnil;
 }
 
-/* INPUT Examples:
- * -  CURRENT USERS
- *   - bin:x:2:2:bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::Bin User:/bin:/bin/sh
- *
- * CURRENT USER
- *   iff *one* of uid/gid is empty
- *      - if VAL is NOT equal to VAL in PASSWD
- *         - if VAL is available
- *             -  Populate VAL
- *         - else raise error
- *      - else Populate VAL
- *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
- *      - populate VALUE from PASSWD
+/*
+ * Determine if the passwd entry is in extended (macOS) format.
+ * macOS format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell (10 fields, 9 colons)
+ * Linux format: name:passwd:uid:gid:gecos:dir:shell (7 fields, 6 colons)
  */
-VALUE eu_parsecurrent(VALUE str, VALUE ary)
+static int is_extended_passwd_format(VALUE ary)
 {
-  struct passwd *pwd;
-  pwd = getpwnam( StringValuePtr(str) );
-
-  // Password
-  str = rb_ary_entry(ary,1);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_passwd), str) )
-    pwd->pw_passwd = StringValuePtr(str);
-
-  // UID/GID
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
-    str = rb_Integer( str );
-    if ( ! rb_eql( INT2FIX(pwd->pw_uid), str ) )
-      pwd->pw_uid = NUM2UIDT(str);
-  }
-
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ) ) {
-    str = rb_Integer( str );
-    if ( getgrgid(NUM2GIDT(str)) )
-      pwd->pw_gid = NUM2GIDT(str);
-  }
-
-  // GECOS
-  str = rb_ary_entry(ary,4);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_gecos), str) )
-    pwd->pw_gecos = StringValuePtr(str);
-
-  // Directory
-  str = rb_ary_entry(ary,5);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_dir), str) )
-    pwd->pw_dir = StringValuePtr(str);
-
-  // Shell
-  str = rb_ary_entry(ary,6);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_shell), str) ) {
-    SafeStringValue(str);
-    pwd->pw_shell = StringValuePtr(str);
-  }
-
-  return setup_passwd(pwd);
+  long len = RARRAY_LEN(ary);
+  return (len >= 10);
 }
 
-/* INPUT Examples:
- * - NEW USERS
- *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User::/bin/bash
+/*
+ * Pure string parser for passwd entries - mirrors native sgetpwent() behavior.
+ * No side effects: no getpwnam() lookups, no next_uid/next_gid calls, no defaults.
+ * Parses the input string exactly as given.
  *
+ * INPUT Examples:
+ * - Linux format (7 fields): name:passwd:uid:gid:gecos:dir:shell
+ * - macOS format (10 fields): name:passwd:uid:gid:class:change:expire:gecos:dir:shell
+ *
+ * Empty UID/GID fields are treated as 0.
+ * Empty string fields (passwd, gecos, dir, shell) remain as empty strings.
  */
-VALUE eu_parsenew(VALUE self, VALUE ary)
+static VALUE eu_sgetpwent_parse(VALUE ary)
 {
-  VALUE uid, gid, tmp, nam;
+  VALUE tmp;
   struct passwd *pwd;
-  struct group  *grp;
-  int i = 0;
+  int extended_format;
+  int gecos_idx, dir_idx, shell_idx;
+  long ary_len;
 
   pwd = malloc(sizeof *pwd);
+  if (pwd == NULL)
+    rb_memerror();
+  memset(pwd, 0, sizeof *pwd);
 
-  nam = rb_ary_entry(ary,i++);
-  pwd->pw_name = StringValuePtr(nam);
+  /* Detect format based on field count */
+  extended_format = is_extended_passwd_format(ary);
+  ary_len = RARRAY_LEN(ary);
 
-  /* Setup password field
-   *   if PASSWORD is empty
-   *      - if SHADOW
-   *          - PASSWORD equals 'x'
-   *      - else
-   *          - PASSWORD equals '*'
-   */
-  tmp = rb_ary_entry(ary,i++);
-  if (RSTRING_BLANK_P(tmp))
-    tmp = PW_DEFAULT_PASS;
-
-  pwd->pw_passwd = StringValuePtr(tmp);
-
-  /* Setup UID field */
-  uid = rb_ary_entry(ary,i++);
-  gid = rb_ary_entry(ary,i++);
-
-  /* if UID Test availability */
-  if (! RSTRING_BLANK_P(uid))
-    next_uid(1, &uid, self);
-
-  uid = next_uid(0, 0, self);
-
-  /*   if GID empty
-   *     - if USERNAME found in /etc/group
-   *        - GID equals struct group->gid
-   *     - else next_gid
-   *   else if GID < 1000
-   *       - assign GID
-   *     - else
-   *       - next_gid
-   */
-  if (RSTRING_BLANK_P(gid))
-    if ( (grp = getgrnam( StringValuePtr(nam) )) ) // Found a group with the same name
-      gid = GIDT2NUM(grp->gr_gid);
-    else {
-      next_gid(1, &uid, self);
-      gid = next_gid(0, 0, self);
+  /* Validate array has enough elements for the detected format */
+  if (extended_format) {
+    if (ary_len < 10) {
+      free(pwd);
+      rb_raise(rb_eArgError, "extended passwd format requires at least 10 fields, got %ld", ary_len);
     }
-  else {
-    tmp = rb_Integer(gid);
-    if ( (NUM2UINT(tmp) != 0) && ( NUM2UINT(tmp) < ((unsigned int)1000)) )
-      gid = tmp;
-    else {
-      next_gid(1, &tmp, self);
-      gid = next_gid(0, 0, self);
+    /* macOS 10-field format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell */
+    gecos_idx = 7;
+    dir_idx = 8;
+    shell_idx = 9;
+  } else {
+    if (ary_len < 7) {
+      free(pwd);
+      rb_raise(rb_eArgError, "passwd format requires at least 7 fields, got %ld", ary_len);
     }
+    /* Linux 7-field format: name:passwd:uid:gid:gecos:dir:shell */
+    gecos_idx = 4;
+    dir_idx = 5;
+    shell_idx = 6;
   }
 
-  pwd->pw_uid   = NUM2UIDT(uid);
-  pwd->pw_gid   = NUM2GIDT(gid);
+  /* Name - already validated to be non-empty by caller */
+  tmp = rb_ary_entry(ary, 0);
+  pwd->pw_name = StringValuePtr(tmp);
 
-  /* _launchservicesd:*:239:239::0:0:_launchservicesd:/var/empty:/usr/bin/false */
-  /* daemon:x:1:1:daemon:/usr/sbin:/bin/sh */
-  #ifdef HAVE_ST_PW_CLASS
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary, i)) )
+  /* Password - use as-is, empty string if blank */
+  tmp = rb_ary_entry(ary, 1);
+  if (RSTRING_BLANK_P(tmp))
     tmp = setup_safe_str("");
-  pwd->pw_class = StringValuePtr( tmp );
+  pwd->pw_passwd = StringValuePtr(tmp);
 
-  i++;
-  #endif
+  /* UID - parse as integer, 0 if empty */
+  tmp = rb_ary_entry(ary, 2);
+  if (RSTRING_BLANK_P(tmp))
+    pwd->pw_uid = 0;
+  else
+    pwd->pw_uid = NUM2UIDT(rb_Integer(tmp));
 
-  #ifdef HAVE_ST_PW_CHANGE
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = setup_safe_str("0");
+  /* GID - parse as integer, 0 if empty */
+  tmp = rb_ary_entry(ary, 3);
+  if (RSTRING_BLANK_P(tmp))
+    pwd->pw_gid = 0;
+  else
+    pwd->pw_gid = NUM2GIDT(rb_Integer(tmp));
 
-  pwd->pw_change = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
-  i++;
-  #endif
+  /* Handle macOS-specific fields (class, change, expire) */
+#ifdef HAVE_ST_PW_CLASS
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 4);
+    if (RSTRING_BLANK_P(tmp))
+      tmp = setup_safe_str("");
+    pwd->pw_class = StringValuePtr(tmp);
+  } else {
+    pwd->pw_class = "";
+  }
+#endif
 
+#ifdef HAVE_ST_PW_CHANGE
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 5);
+    if (RSTRING_BLANK_P(tmp))
+      pwd->pw_change = (time_t)0;
+    else
+      pwd->pw_change = (time_t)NUM2LONG(rb_Integer(tmp));
+  } else {
+    pwd->pw_change = (time_t)0;
+  }
+#endif
 
-  #ifdef HAVE_ST_PW_EXPIRE
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = setup_safe_str("0");
+#ifdef HAVE_ST_PW_EXPIRE
+  if (extended_format) {
+    tmp = rb_ary_entry(ary, 6);
+    if (RSTRING_BLANK_P(tmp))
+      pwd->pw_expire = (time_t)0;
+    else
+      pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(tmp));
+  } else {
+    pwd->pw_expire = (time_t)0;
+  }
+#endif
 
-  pwd->pw_expire = (time_t)NUM2UIDT((VALUE)rb_Integer( tmp ));
-  i++;
-  #endif
+  /* GECOS - use as-is, empty string if blank */
+  tmp = rb_ary_entry(ary, gecos_idx);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = setup_safe_str("");
+  pwd->pw_gecos = StringValuePtr(tmp);
 
-  /*  if GECOS, HOMEDIR, SHELL is empty
-   *     - GECOS defaults to USERNAME
-   *     - Assign default VALUE (Need to set config VALUES)
-   */
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = nam;
-  pwd->pw_gecos = StringValuePtr( tmp );
-  i++;
+  /* Directory - use as-is, empty string if blank */
+  tmp = rb_ary_entry(ary, dir_idx);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = setup_safe_str("");
+  pwd->pw_dir = StringValuePtr(tmp);
 
-  if ( RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = rb_str_plus(setup_safe_str("/home/"), nam);
-  pwd->pw_dir   = StringValuePtr( tmp );
-  i++;
-
-
-  /* This might be a null, indicating that the system default
-   * should be used.
-   */
-  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,i)) )
-    tmp = setup_safe_str(DEFAULT_SHELL);
-  pwd->pw_shell = StringValuePtr( tmp );
+  /* Shell - use as-is, empty string if blank */
+  tmp = rb_ary_entry(ary, shell_idx);
+  if (RSTRING_BLANK_P(tmp))
+    tmp = setup_safe_str("");
+  pwd->pw_shell = StringValuePtr(tmp);
 
   tmp = setup_passwd(pwd);
 
@@ -489,62 +447,32 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
 }
 /* End of set/end syscalls */
 
-/* INPUT Examples:
- * -  CURRENT USERS
- *   - bin:x:2:2:bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::Bin User:/bin:/bin/sh
+/*
+ * Pure string parser for passwd entries - mirrors native sgetpwent() syscall behavior.
  *
- * - NEW USERS
- *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User::/bin/bash
+ * INPUT Examples:
+ * - Linux format (7 fields): name:passwd:uid:gid:gecos:dir:shell
+ * - macOS format (10 fields): name:passwd:uid:gid:class:change:expire:gecos:dir:shell
  *
- * UNIVERSAL BEHAVIOR
- *   if USERNAME empty
- *      - raise error
- * CURRENT USER
- *   iff one of uid/gid is empty
- *      - if VAL is NOT equal to VAL in PASSWD
- *         - if VAL is available
- *             -  Populate VAL
- *         - else raise error
- *      - else Populate VAL
- *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
- *      - populate VALUE from PASSWD
- * NEW USER
- *   if UID/GID are empty
- *     - next_uid/next_gid
- *   else
- *     - Test VALUE availability
- *   then
- *     - Populate UID/GID
- *   if GECOS, HOMEDIR, SHELL is empty
- *     - GECOS defaults to USERNAME
- *     - Assign default VALUE (Need to set config VALUES)
- *   if PASSWORD is empty
- *      - raise Error
- *
+ * Behavior:
+ * - Pure parsing: converts string to struct passwd and returns it
+ * - No getpwnam() lookups
+ * - No next_uid()/next_gid() calls
+ * - Empty UID/GID fields become 0
+ * - Empty string fields remain as empty strings
  */
 VALUE eu_sgetpwent(VALUE self, VALUE str)
 {
   VALUE ary;
-
-  eu_setpwent(self);
-  eu_setgrent(self);
+  VALUE name;
 
   ary = rb_str_split(str, ":");
-  str = rb_ary_entry(ary,0);
+  name = rb_ary_entry(ary, 0);
 
-  if (RSTRING_BLANK_P(str))
-    rb_raise(rb_eArgError,"User name must be present.");
+  if (RSTRING_BLANK_P(name))
+    rb_raise(rb_eArgError, "User name must be present.");
 
-  if (getpwnam( StringValuePtr(str) ))
-    return eu_parsecurrent(str, ary);
-  else
-    return eu_parsenew(self, ary);
+  return eu_sgetpwent_parse(ary);
 }
 
 VALUE eu_sgetspent(VALUE self, VALUE nam)
@@ -563,44 +491,72 @@ VALUE eu_sgetspent(VALUE self, VALUE nam)
 #endif
 }
 
-// name:passwd:gid:members
+/*
+ * Update an existing group entry from parsed array.
+ * Format: name:passwd:gid[:members]
+ * Minimum 3 fields required (name, passwd, gid); members is optional.
+ * Note: Ruby's split removes trailing empty fields, so "root:x:0:" yields 3 elements.
+ */
 static VALUE eu_grp_cur(VALUE str, VALUE ary)
 {
   struct group *grp;
+  long ary_len;
+
+  /* Validate array has minimum required fields (name, passwd, gid) */
+  ary_len = RARRAY_LEN(ary);
+  if (ary_len < 3)
+    rb_raise(rb_eArgError, "group format requires at least 3 fields (name:passwd:gid), got %ld", ary_len);
+
   grp = getgrnam( StringValuePtr(str) );
 
-  // Password
-  str = rb_ary_entry(ary,1);
+  /* Password */
+  str = rb_ary_entry(ary, 1);
   if ( ! rb_eql( setup_safe_str(grp->gr_passwd), str) )
     grp->gr_passwd = StringValuePtr(str);
 
-  // GID
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
+  /* GID */
+  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary, 2)) ) ) {
     str = rb_Integer( str );
     if ( !getgrgid(NUM2GIDT(str)) )
       grp->gr_gid = NUM2GIDT(str);
   }
 
-  // Group Members
-  if ( RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ))
+  /* Group Members (optional 4th field) */
+  str = (ary_len > 3) ? rb_ary_entry(ary, 3) : Qnil;
+  if ( RSTRING_BLANK_P(str) )
     str = rb_str_new2("");
 
-  ary = rb_str_split(str,",");
+  ary = rb_str_split(str, ",");
   if ( ! rb_eql( setup_safe_array(grp->gr_mem), ary) )
     grp->gr_mem = setup_char_members( ary );
 
   return setup_group(grp);
 }
 
+/*
+ * Create a new group entry from parsed array.
+ * Format: name:passwd:gid[:members]
+ * Minimum 3 fields required (name, passwd, gid); members is optional.
+ * Note: Ruby's split removes trailing empty fields, so "newgroup:x:1000:" yields 3 elements.
+ */
 static VALUE eu_grp_new(VALUE self, VALUE ary)
 {
   VALUE gid, tmp, nam;
   struct passwd *pwd;
   struct group  *grp;
+  long ary_len;
+
+  /* Validate array has minimum required fields (name, passwd, gid) */
+  ary_len = RARRAY_LEN(ary);
+  if (ary_len < 3)
+    rb_raise(rb_eArgError, "group format requires at least 3 fields (name:passwd:gid), got %ld", ary_len);
 
   grp = malloc(sizeof *grp);
+  if (grp == NULL)
+    rb_memerror();
+  memset(grp, 0, sizeof *grp);
 
-  nam = rb_ary_entry(ary,0);
+  nam = rb_ary_entry(ary, 0);
   grp->gr_name = StringValuePtr(nam);
 
   /* Setup password field
@@ -610,14 +566,14 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
    *      - else
    *          - PASSWORD equals '*'
    */
-  tmp = rb_ary_entry(ary,1);
+  tmp = rb_ary_entry(ary, 1);
   if (RSTRING_BLANK_P(tmp))
     tmp = PW_DEFAULT_PASS;
 
   grp->gr_passwd = StringValuePtr(tmp);
 
   /* Setup GID field */
-  gid = rb_ary_entry(ary,2);
+  gid = rb_ary_entry(ary, 2);
 
   /*   if GID empty
    *     - if USERNAME found in /etc/group
@@ -630,7 +586,7 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
    *       - Test availability
    */
   if (RSTRING_BLANK_P(gid))
-    if ( (pwd = getpwnam( StringValuePtr(nam) )) ) // Found a group with the same name
+    if ( (pwd = getpwnam( StringValuePtr(nam) )) ) /* Found a group with the same name */
       gid = GIDT2NUM(pwd->pw_gid);
     else
       gid = next_gid(0, 0, self);
@@ -645,9 +601,11 @@ static VALUE eu_grp_new(VALUE self, VALUE ary)
 
   grp->gr_gid   = NUM2GIDT(gid);
 
-  if (RSTRING_BLANK_P(tmp = rb_ary_entry(ary,3)))
+  /* Members (optional 4th field) */
+  tmp = (ary_len > 3) ? rb_ary_entry(ary, 3) : Qnil;
+  if (RSTRING_BLANK_P(tmp))
     tmp = rb_str_new2("");
-  grp->gr_mem = setup_char_members( rb_str_split(tmp,",") );
+  grp->gr_mem = setup_char_members( rb_str_split(tmp, ",") );
 
   nam = setup_group(grp);
   free_char_members(grp->gr_mem, (int)RARRAY_LEN(rb_str_split(tmp,",")));

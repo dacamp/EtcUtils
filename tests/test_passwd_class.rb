@@ -34,8 +34,6 @@ class PasswdClassTest < Test::Unit::TestCase
   end
 
   def test_sgetpwent
-    # sgetpwent parsing doesn't work correctly on macOS due to extended passwd format
-    skip_on_macos("sgetpwent doesn't handle macOS extended passwd format")
     assert sgetpwent(find_pwd('root').to_entry).name.eql? "root"
   end
 
@@ -133,10 +131,8 @@ class PasswdClassTest < Test::Unit::TestCase
     assert_not_nil e.directory
     assert_not_nil e.shell
     assert e.respond_to?(:fputs)
-    # sgetpwent parsing doesn't work correctly on macOS due to extended passwd format
-    unless MACOS
-      assert_equal 'root', EU::Passwd.parse(e.to_entry).name
-    end
+    # sgetpwent now handles both Linux and macOS formats
+    assert_equal 'root', EU::Passwd.parse(e.to_entry).name
     assert_equal String, e.to_entry.class
   end
 end

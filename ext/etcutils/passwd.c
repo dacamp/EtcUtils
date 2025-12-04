@@ -77,21 +77,75 @@ static VALUE user_pw_put(VALUE self, VALUE io)
 }
 #endif
 
+/*
+ * Generate passwd entry string in platform-appropriate format.
+ *
+ * Linux format (7 fields):
+ *   name:passwd:uid:gid:gecos:directory:shell
+ *
+ * macOS/BSD format (10 fields):
+ *   name:passwd:uid:gid:class:change:expire:gecos:directory:shell
+ *
+ * This function is used as a fallback when putpwent() is not available.
+ */
 static VALUE user_pw_sprintf(VALUE self)
 {
+#if defined(HAVE_ST_PW_CLASS) && defined(HAVE_ST_PW_CHANGE) && defined(HAVE_ST_PW_EXPIRE)
+  /* macOS/BSD extended format with 10 fields */
   VALUE args[11];
-  args[0]  = setup_safe_str("%s:%s:%s:%s:%s:%s:%s:%s:%s:%s\n");
+  VALUE access_class, change, expire, gecos, directory, shell;
+
+  args[0]  = setup_safe_str("%s:%s:%d:%d:%s:%d:%d:%s:%s:%s\n");
   args[1]  = rb_ivar_get(self, id_name);
   args[2]  = rb_ivar_get(self, id_passwd);
   args[3]  = rb_ivar_get(self, id_uid);
-  args[4]  = rb_ivar_get(self,id_gid);
-  args[5]  = rb_iv_get(self, "@access_classs");
-  args[6]  = rb_iv_get(self, "@last_pw_change");
-  args[7]  = rb_iv_get(self, "@expire");
-  args[8]  = rb_iv_get(self, "@gecos");
-  args[9]  = rb_iv_get(self, "@directory");
-  args[10] = rb_iv_get(self, "@shell");
+  args[4]  = rb_ivar_get(self, id_gid);
+
+  /* access_class defaults to empty string if nil */
+  access_class = rb_iv_get(self, "@access_class");
+  args[5]  = NIL_P(access_class) ? setup_safe_str("") : access_class;
+
+  /* change and expire are time_t values, default to 0 */
+  change = rb_iv_get(self, "@last_pw_change");
+  args[6]  = NIL_P(change) ? INT2FIX(0) : change;
+
+  expire = rb_iv_get(self, "@expire");
+  args[7]  = NIL_P(expire) ? INT2FIX(0) : expire;
+
+  /* gecos, directory, shell default to empty string if nil */
+  gecos = rb_iv_get(self, "@gecos");
+  args[8]  = NIL_P(gecos) ? setup_safe_str("") : gecos;
+
+  directory = rb_iv_get(self, "@directory");
+  args[9]  = NIL_P(directory) ? setup_safe_str("") : directory;
+
+  shell = rb_iv_get(self, "@shell");
+  args[10] = NIL_P(shell) ? setup_safe_str("") : shell;
+
   return rb_f_sprintf(11, args);
+#else
+  /* Linux standard format with 7 fields */
+  VALUE args[8];
+  VALUE gecos, directory, shell;
+
+  args[0]  = setup_safe_str("%s:%s:%d:%d:%s:%s:%s\n");
+  args[1]  = rb_ivar_get(self, id_name);
+  args[2]  = rb_ivar_get(self, id_passwd);
+  args[3]  = rb_ivar_get(self, id_uid);
+  args[4]  = rb_ivar_get(self, id_gid);
+
+  /* gecos, directory, shell default to empty string if nil */
+  gecos = rb_iv_get(self, "@gecos");
+  args[5]  = NIL_P(gecos) ? setup_safe_str("") : gecos;
+
+  directory = rb_iv_get(self, "@directory");
+  args[6]  = NIL_P(directory) ? setup_safe_str("") : directory;
+
+  shell = rb_iv_get(self, "@shell");
+  args[7]  = NIL_P(shell) ? setup_safe_str("") : shell;
+
+  return rb_f_sprintf(8, args);
+#endif
 }
 
 VALUE user_putpwent(VALUE self, VALUE io)
@@ -178,6 +232,28 @@ VALUE setup_shadow(struct spwd *spasswd)
   rb_iv_set(obj, "@flag", UINT2QFIX(spasswd->sp_flag));
 
   return obj;
+}
+#endif
+
+/*
+ * Stub methods for platforms without shadow.h (macOS/BSD).
+ * These raise NotImplementedError with a helpful message.
+ */
+#ifndef HAVE_SHADOW_H
+static VALUE
+shadow_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "Shadow is not available on this platform (no shadow.h)");
+  return Qnil;
+}
+
+static VALUE
+shadow_instance_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "Shadow is not available on this platform (no shadow.h)");
+  return Qnil;
 }
 #endif
 
@@ -301,5 +377,16 @@ void Init_etcutils_user()
 
   rb_define_singleton_method(rb_cShadow,"set", eu_setspent, 0);
   rb_define_singleton_method(rb_cShadow,"end", eu_endspent, 0);
+#else
+  /* macOS/BSD: Define stub methods that raise NotImplementedError */
+  rb_define_singleton_method(rb_cShadow,"get",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"each",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"find",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"parse",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"set",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"end",shadow_not_implemented,-1);
+
+  rb_define_method(rb_cShadow,"to_entry",shadow_instance_not_implemented,-1);
+  rb_define_method(rb_cShadow,"fputs",shadow_instance_not_implemented,-1);
 #endif
 }
