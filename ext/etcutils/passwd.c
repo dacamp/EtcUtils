@@ -235,6 +235,28 @@ VALUE setup_shadow(struct spwd *spasswd)
 }
 #endif
 
+/*
+ * Stub methods for platforms without shadow.h (macOS/BSD).
+ * These raise NotImplementedError with a helpful message.
+ */
+#ifndef HAVE_SHADOW_H
+static VALUE
+shadow_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "Shadow is not available on this platform (no shadow.h)");
+  return Qnil;
+}
+
+static VALUE
+shadow_instance_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "Shadow is not available on this platform (no shadow.h)");
+  return Qnil;
+}
+#endif
+
 VALUE setup_passwd(struct passwd *pwd)
 {
   VALUE obj;
@@ -355,5 +377,16 @@ void Init_etcutils_user()
 
   rb_define_singleton_method(rb_cShadow,"set", eu_setspent, 0);
   rb_define_singleton_method(rb_cShadow,"end", eu_endspent, 0);
+#else
+  /* macOS/BSD: Define stub methods that raise NotImplementedError */
+  rb_define_singleton_method(rb_cShadow,"get",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"each",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"find",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"parse",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"set",shadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cShadow,"end",shadow_not_implemented,-1);
+
+  rb_define_method(rb_cShadow,"to_entry",shadow_instance_not_implemented,-1);
+  rb_define_method(rb_cShadow,"fputs",shadow_instance_not_implemented,-1);
 #endif
 }

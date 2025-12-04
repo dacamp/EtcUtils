@@ -174,6 +174,28 @@ VALUE setup_gshadow(struct sgrp *sgroup)
 }
 #endif
 
+/*
+ * Stub methods for platforms without gshadow.h (macOS/BSD).
+ * These raise NotImplementedError with a helpful message.
+ */
+#ifndef GSHADOW
+static VALUE
+gshadow_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "GShadow is not available on this platform (no gshadow.h)");
+  return Qnil;
+}
+
+static VALUE
+gshadow_instance_not_implemented(int argc, VALUE *argv, VALUE self)
+{
+  rb_raise(rb_eNotImpError,
+           "GShadow is not available on this platform (no gshadow.h)");
+  return Qnil;
+}
+#endif
+
 void Init_etcutils_group()
 {
   /* Define-const: Group
@@ -224,5 +246,16 @@ void Init_etcutils_group()
   rb_define_singleton_method(rb_cGshadow,"each",eu_getsgent,0);
   rb_define_method(rb_cGshadow, "fputs", group_putsgent, 1);
   rb_define_method(rb_cGshadow, "to_entry", group_sg_entry,0);
+#else
+  /* macOS/BSD: Define stub methods that raise NotImplementedError */
+  rb_define_singleton_method(rb_cGshadow,"get",gshadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cGshadow,"each",gshadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cGshadow,"find",gshadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cGshadow,"parse",gshadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cGshadow,"set",gshadow_not_implemented,-1);
+  rb_define_singleton_method(rb_cGshadow,"end",gshadow_not_implemented,-1);
+
+  rb_define_method(rb_cGshadow,"to_entry",gshadow_instance_not_implemented,-1);
+  rb_define_method(rb_cGshadow,"fputs",gshadow_instance_not_implemented,-1);
 #endif
 }
