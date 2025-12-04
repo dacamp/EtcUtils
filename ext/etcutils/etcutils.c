@@ -311,134 +311,22 @@ static int is_extended_passwd_format(VALUE ary)
   return (len >= 10);
 }
 
-/* INPUT Examples:
- * -  CURRENT USERS (Linux format - 7 fields)
- *   - bin:x:2:2:bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/sh
+/*
+ * Pure string parser for passwd entries - mirrors native sgetpwent() behavior.
+ * No side effects: no getpwnam() lookups, no next_uid/next_gid calls, no defaults.
+ * Parses the input string exactly as given.
  *
- * -  CURRENT USERS (macOS format - 10 fields)
- *   - _launchservicesd:*:239:239::0:0:_launchservicesd:/var/empty:/usr/bin/false
- *   - daemon:*:1:1::0:0:System Services:/var/root:/usr/bin/false
+ * INPUT Examples:
+ * - Linux format (7 fields): name:passwd:uid:gid:gecos:dir:shell
+ * - macOS format (10 fields): name:passwd:uid:gid:class:change:expire:gecos:dir:shell
  *
- * CURRENT USER
- *   iff *one* of uid/gid is empty
- *      - if VAL is NOT equal to VAL in PASSWD
- *         - if VAL is available
- *             -  Populate VAL
- *         - else raise error
- *      - else Populate VAL
- *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
- *      - populate VALUE from PASSWD
+ * Empty UID/GID fields are treated as 0.
+ * Empty string fields (passwd, gecos, dir, shell) remain as empty strings.
  */
-VALUE eu_parsecurrent(VALUE str, VALUE ary)
+static VALUE eu_sgetpwent_parse(VALUE ary)
 {
+  VALUE tmp;
   struct passwd *pwd;
-  int extended_format;
-  int gecos_idx, dir_idx, shell_idx;
-  long ary_len;
-
-  pwd = getpwnam( StringValuePtr(str) );
-
-  /* Detect format based on field count */
-  extended_format = is_extended_passwd_format(ary);
-  ary_len = RARRAY_LEN(ary);
-
-  /* Validate array has enough elements for the detected format */
-  if (extended_format) {
-    if (ary_len < 10)
-      rb_raise(rb_eArgError, "extended passwd format requires at least 10 fields, got %ld", ary_len);
-    /* macOS 10-field format: name:passwd:uid:gid:class:change:expire:gecos:dir:shell */
-    gecos_idx = 7;
-    dir_idx = 8;
-    shell_idx = 9;
-  } else {
-    if (ary_len < 7)
-      rb_raise(rb_eArgError, "passwd format requires at least 7 fields, got %ld", ary_len);
-    /* Linux 7-field format: name:passwd:uid:gid:gecos:dir:shell */
-    gecos_idx = 4;
-    dir_idx = 5;
-    shell_idx = 6;
-  }
-
-  // Password
-  str = rb_ary_entry(ary,1);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_passwd), str) )
-    pwd->pw_passwd = StringValuePtr(str);
-
-  // UID/GID
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,2)) ) ) {
-    str = rb_Integer( str );
-    if ( ! rb_eql( INT2FIX(pwd->pw_uid), str ) )
-      pwd->pw_uid = NUM2UIDT(str);
-  }
-
-  if ( ! RSTRING_BLANK_P( (str = rb_ary_entry(ary,3)) ) ) {
-    str = rb_Integer( str );
-    if ( getgrgid(NUM2GIDT(str)) )
-      pwd->pw_gid = NUM2GIDT(str);
-  }
-
-  /* Handle macOS-specific fields if present in the struct */
-#ifdef HAVE_ST_PW_CLASS
-  if (extended_format) {
-    str = rb_ary_entry(ary, 4);
-    if (!RSTRING_BLANK_P(str))
-      pwd->pw_class = StringValuePtr(str);
-  }
-#endif
-
-#ifdef HAVE_ST_PW_CHANGE
-  if (extended_format) {
-    str = rb_ary_entry(ary, 5);
-    if (!RSTRING_BLANK_P(str))
-      pwd->pw_change = (time_t)NUM2LONG(rb_Integer(str));
-  }
-#endif
-
-#ifdef HAVE_ST_PW_EXPIRE
-  if (extended_format) {
-    str = rb_ary_entry(ary, 6);
-    if (!RSTRING_BLANK_P(str))
-      pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(str));
-  }
-#endif
-
-  // GECOS
-  str = rb_ary_entry(ary, gecos_idx);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_gecos), str) )
-    pwd->pw_gecos = StringValuePtr(str);
-
-  // Directory
-  str = rb_ary_entry(ary, dir_idx);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_dir), str) )
-    pwd->pw_dir = StringValuePtr(str);
-
-  // Shell
-  str = rb_ary_entry(ary, shell_idx);
-  if ( ! rb_eql( setup_safe_str(pwd->pw_shell), str) ) {
-    SafeStringValue(str);
-    pwd->pw_shell = StringValuePtr(str);
-  }
-
-  return setup_passwd(pwd);
-}
-
-/* INPUT Examples:
- * - NEW USERS (Linux format - 7 fields)
- *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User::/bin/bash
- *
- * - NEW USERS (macOS format - 10 fields)
- *   - newuser:*:1000:1000::0:0:New User:/home/newuser:/bin/bash
- *
- */
-VALUE eu_parsenew(VALUE self, VALUE ary)
-{
-  VALUE uid, gid, tmp, nam;
-  struct passwd *pwd;
-  struct group  *grp;
   int extended_format;
   int gecos_idx, dir_idx, shell_idx;
   long ary_len;
@@ -473,64 +361,31 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
     shell_idx = 6;
   }
 
-  nam = rb_ary_entry(ary, 0);
-  pwd->pw_name = StringValuePtr(nam);
+  /* Name - already validated to be non-empty by caller */
+  tmp = rb_ary_entry(ary, 0);
+  pwd->pw_name = StringValuePtr(tmp);
 
-  /* Setup password field
-   *   if PASSWORD is empty
-   *      - if SHADOW
-   *          - PASSWORD equals 'x'
-   *      - else
-   *          - PASSWORD equals '*'
-   */
+  /* Password - use as-is, empty string if blank */
   tmp = rb_ary_entry(ary, 1);
   if (RSTRING_BLANK_P(tmp))
-    tmp = PW_DEFAULT_PASS;
-
+    tmp = setup_safe_str("");
   pwd->pw_passwd = StringValuePtr(tmp);
 
-  /* Setup UID field */
-  uid = rb_ary_entry(ary, 2);
-  gid = rb_ary_entry(ary, 3);
+  /* UID - parse as integer, 0 if empty */
+  tmp = rb_ary_entry(ary, 2);
+  if (RSTRING_BLANK_P(tmp))
+    pwd->pw_uid = 0;
+  else
+    pwd->pw_uid = NUM2UIDT(rb_Integer(tmp));
 
-  /* if UID Test availability */
-  if (! RSTRING_BLANK_P(uid))
-    next_uid(1, &uid, self);
+  /* GID - parse as integer, 0 if empty */
+  tmp = rb_ary_entry(ary, 3);
+  if (RSTRING_BLANK_P(tmp))
+    pwd->pw_gid = 0;
+  else
+    pwd->pw_gid = NUM2GIDT(rb_Integer(tmp));
 
-  uid = next_uid(0, 0, self);
-
-  /*   if GID empty
-   *     - if USERNAME found in /etc/group
-   *        - GID equals struct group->gid
-   *     - else next_gid
-   *   else if GID < 1000
-   *       - assign GID
-   *     - else
-   *       - next_gid
-   */
-  if (RSTRING_BLANK_P(gid))
-    if ( (grp = getgrnam( StringValuePtr(nam) )) ) // Found a group with the same name
-      gid = GIDT2NUM(grp->gr_gid);
-    else {
-      next_gid(1, &uid, self);
-      gid = next_gid(0, 0, self);
-    }
-  else {
-    tmp = rb_Integer(gid);
-    if ( (NUM2UINT(tmp) != 0) && ( NUM2UINT(tmp) < ((unsigned int)1000)) )
-      gid = tmp;
-    else {
-      next_gid(1, &tmp, self);
-      gid = next_gid(0, 0, self);
-    }
-  }
-
-  pwd->pw_uid   = NUM2UIDT(uid);
-  pwd->pw_gid   = NUM2GIDT(gid);
-
-  /* Handle macOS-specific fields (class, change, expire)
-   * These are set from input if in extended format, or defaults if not
-   */
+  /* Handle macOS-specific fields (class, change, expire) */
 #ifdef HAVE_ST_PW_CLASS
   if (extended_format) {
     tmp = rb_ary_entry(ary, 4);
@@ -546,8 +401,9 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   if (extended_format) {
     tmp = rb_ary_entry(ary, 5);
     if (RSTRING_BLANK_P(tmp))
-      tmp = setup_safe_str("0");
-    pwd->pw_change = (time_t)NUM2LONG(rb_Integer(tmp));
+      pwd->pw_change = (time_t)0;
+    else
+      pwd->pw_change = (time_t)NUM2LONG(rb_Integer(tmp));
   } else {
     pwd->pw_change = (time_t)0;
   }
@@ -557,33 +413,30 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
   if (extended_format) {
     tmp = rb_ary_entry(ary, 6);
     if (RSTRING_BLANK_P(tmp))
-      tmp = setup_safe_str("0");
-    pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(tmp));
+      pwd->pw_expire = (time_t)0;
+    else
+      pwd->pw_expire = (time_t)NUM2LONG(rb_Integer(tmp));
   } else {
     pwd->pw_expire = (time_t)0;
   }
 #endif
 
-  /*  if GECOS, HOMEDIR, SHELL is empty
-   *     - GECOS defaults to USERNAME
-   *     - Assign default VALUE (Need to set config VALUES)
-   */
+  /* GECOS - use as-is, empty string if blank */
   tmp = rb_ary_entry(ary, gecos_idx);
   if (RSTRING_BLANK_P(tmp))
-    tmp = nam;
+    tmp = setup_safe_str("");
   pwd->pw_gecos = StringValuePtr(tmp);
 
+  /* Directory - use as-is, empty string if blank */
   tmp = rb_ary_entry(ary, dir_idx);
   if (RSTRING_BLANK_P(tmp))
-    tmp = rb_str_plus(setup_safe_str("/home/"), nam);
+    tmp = setup_safe_str("");
   pwd->pw_dir = StringValuePtr(tmp);
 
-  /* This might be a null, indicating that the system default
-   * should be used.
-   */
+  /* Shell - use as-is, empty string if blank */
   tmp = rb_ary_entry(ary, shell_idx);
   if (RSTRING_BLANK_P(tmp))
-    tmp = setup_safe_str(DEFAULT_SHELL);
+    tmp = setup_safe_str("");
   pwd->pw_shell = StringValuePtr(tmp);
 
   tmp = setup_passwd(pwd);
@@ -594,62 +447,32 @@ VALUE eu_parsenew(VALUE self, VALUE ary)
 }
 /* End of set/end syscalls */
 
-/* INPUT Examples:
- * -  CURRENT USERS
- *   - bin:x:2:2:bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/bash
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::bin:/bin:/bin/sh
- *   - bin:x:::Bin User:/bin:/bin/sh
+/*
+ * Pure string parser for passwd entries - mirrors native sgetpwent() syscall behavior.
  *
- * - NEW USERS
- *   - newuser:x:1000:1000:New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User:/home/newuser:/bin/bash
- *   - newuser:x:::New User::/bin/bash
+ * INPUT Examples:
+ * - Linux format (7 fields): name:passwd:uid:gid:gecos:dir:shell
+ * - macOS format (10 fields): name:passwd:uid:gid:class:change:expire:gecos:dir:shell
  *
- * UNIVERSAL BEHAVIOR
- *   if USERNAME empty
- *      - raise error
- * CURRENT USER
- *   iff one of uid/gid is empty
- *      - if VAL is NOT equal to VAL in PASSWD
- *         - if VAL is available
- *             -  Populate VAL
- *         - else raise error
- *      - else Populate VAL
- *   if PASSWORD, UID, GID, GECOS, HOMEDIR, SHELL are empty
- *      - populate VALUE from PASSWD
- * NEW USER
- *   if UID/GID are empty
- *     - next_uid/next_gid
- *   else
- *     - Test VALUE availability
- *   then
- *     - Populate UID/GID
- *   if GECOS, HOMEDIR, SHELL is empty
- *     - GECOS defaults to USERNAME
- *     - Assign default VALUE (Need to set config VALUES)
- *   if PASSWORD is empty
- *      - raise Error
- *
+ * Behavior:
+ * - Pure parsing: converts string to struct passwd and returns it
+ * - No getpwnam() lookups
+ * - No next_uid()/next_gid() calls
+ * - Empty UID/GID fields become 0
+ * - Empty string fields remain as empty strings
  */
 VALUE eu_sgetpwent(VALUE self, VALUE str)
 {
   VALUE ary;
-
-  eu_setpwent(self);
-  eu_setgrent(self);
+  VALUE name;
 
   ary = rb_str_split(str, ":");
-  str = rb_ary_entry(ary,0);
+  name = rb_ary_entry(ary, 0);
 
-  if (RSTRING_BLANK_P(str))
-    rb_raise(rb_eArgError,"User name must be present.");
+  if (RSTRING_BLANK_P(name))
+    rb_raise(rb_eArgError, "User name must be present.");
 
-  if (getpwnam( StringValuePtr(str) ))
-    return eu_parsecurrent(str, ary);
-  else
-    return eu_parsenew(self, ary);
+  return eu_sgetpwent_parse(ary);
 }
 
 VALUE eu_sgetspent(VALUE self, VALUE nam)
