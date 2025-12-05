@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EtcUtils is a Ruby C extension that provides read and write access to the Linux user database files (/etc/passwd, /etc/shadow, /etc/group, /etc/gshadow). This gem wraps native C functions to safely manipulate Unix/Linux user and group databases.
+EtcUtils is a cross-platform Ruby library (with optional C extension for Linux) that provides read and write access to system user databases. v2 adds pure Ruby backends for macOS and Windows, while maintaining backward compatibility with the v1 C extension API.
 
 **CRITICAL WARNING**: This gem can have catastrophic effects on a system if used incorrectly. Always create backup files (conventionally with a trailing dash, e.g., `/etc/passwd-`) before making modifications.
 
@@ -48,34 +48,52 @@ The build system uses `mkmf` to detect:
 - Available functions (lckpwdf, getpwent, sgetpwent, fgetpwent, etc.)
 - Structure members (for cross-platform compatibility)
 
-### Ruby Layer
+### Ruby Layer (v2)
 
-- **lib/etcutils.rb**: Loads the compiled extension and defines `EU` as shorthand for `EtcUtils`
+The v2 implementation is primarily pure Ruby in `lib/etcutils/`:
+
+- **lib/etcutils.rb**: Main entry point, loads C extension or v2 classes, defines `EU` alias
 - **lib/etcutils/version.rb**: Version constant
+- **lib/etcutils/errors.rb**: Exception hierarchy (Error, NotFoundError, PermissionError, etc.)
+- **lib/etcutils/platform.rb**: Platform detection and capability queries
+- **lib/etcutils/user.rb, group.rb, shadow.rb, gshadow.rb**: Struct-based value objects
+- **lib/etcutils/users.rb, groups.rb**: Collection classes with iteration and lookup
+- **lib/etcutils/dry_run_result.rb**: Validation result for write operations
+- **lib/etcutils/backend/**: Platform-specific implementations
+  - **base.rb**: Abstract backend interface
+  - **registry.rb**: Backend selection and registration
+  - **linux.rb**: Linux backend (file parsing, atomic writes, flock locking)
+  - **darwin.rb**: macOS backend (dscl-based)
+  - **windows.rb**: Windows backend (stub, FFI-based in future)
 
 ### Platform Differences
 
-- **Linux**: Full support for passwd, shadow, group, gshadow with locking
-- **OS X/BSD**: Read-only support recommended; limited shadow support; additional passwd fields (last_pw_change, expire, access_class)
-- **nsswitch.conf**: On Ubuntu 12.04, gshadow requires manual configuration due to Debian bug #699089
+- **Linux**: Full read/write support for passwd, shadow, group, gshadow with file locking
+- **macOS**: Read-only via dscl; no shadow/gshadow; additional passwd fields (pw_change, pw_expire, pw_class)
+- **Windows**: Read-only via WinAPI (stub implementation, FFI-based in future)
+- **nsswitch.conf**: On older Debian/Ubuntu, gshadow may require `gshadow: files` in nsswitch.conf
 
 ### Core Classes
 
-Each class wraps a corresponding system database:
+**v2 API (Struct-based):**
+- **EtcUtils::User** - User entry with name, passwd, uid, gid, gecos, dir, shell
+- **EtcUtils::Group** - Group entry with name, passwd, gid, members
+- **EtcUtils::Shadow** - Shadow entry (Linux only)
+- **EtcUtils::GShadow** - GShadow entry (Linux only)
 
-- **EtcUtils::Passwd** → /etc/passwd
-- **EtcUtils::Shadow** → /etc/shadow (requires read permissions)
+All v2 classes support:
+- `parse(entry_string)`: Parse colon-delimited entry string
+- `to_entry`: Serialize back to colon-delimited string
+- `to_h(compact: false)`: Convert to hash
+- Keyword argument initialization: `User.new(name: "test", uid: 1000)`
+
+**v1 API (C extension, Linux only):**
+- **EtcUtils::Passwd** → /etc/passwd (aliased as `User` when C extension loads)
+- **EtcUtils::Shadow** → /etc/shadow
 - **EtcUtils::Group** → /etc/group
-- **EtcUtils::GShadow** → /etc/gshadow (requires read permissions)
+- **EtcUtils::GShadow** → /etc/gshadow
 
-All classes support:
-- `get/getXXent`: Iterate through entries
-- `find(name_or_id)`: Find specific entry
-- `parse(entry_string)`: Parse entry string, create new object
-- `new(*args)`: Create new instance
-- `set/setXXent`: Rewind database
-- `end/endXXent`: Close database
-- `fputs(io)`: Write to file handle
+v1 classes support: `get`, `find`, `parse`, `new`, `set`, `end`, `fputs`
 
 ### File Locking Mechanism
 
@@ -126,17 +144,21 @@ EtcUtils.lock {
 File.rename(tmp, PASSWD)
 ```
 
-### Deprecated Methods
+### Deprecated Methods (v1)
 
-- `#to_s` was removed in 0.1.5 for i386 and will be removed in 1.0.0
-- Use `#to_entry` instead for printing UserDB-style strings
+- `#to_s` was removed in 0.1.5; use `#to_entry` instead for UserDB-style strings
 
 ## Testing Strategy
 
-Tests are organized by privilege level:
+Tests are organized by API version and privilege level:
 
+**v1 tests:**
 - `tests/test_*.rb`: User-level tests (passwd, group reading, locking, next_uid/gid)
 - `tests/root/*.rb`: Root-level tests (shadow, gshadow, writing operations)
 - `tests/etcutils_test_helper.rb`: Shared test utilities
 
-See `tests/README` for detailed test coverage mapping.
+**v2 tests:**
+- `tests/v2/test_*.rb`: v2 API tests (platform, backend, collections, value objects)
+- `tests/v2/test_helper.rb`: v2 test utilities with platform skip helpers
+
+v2 tests automatically skip when the v1 C extension is loaded (detected via `V1_EXTENSION_LOADED` constant).
