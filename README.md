@@ -46,6 +46,10 @@ group = EtcUtils.groups.get("wheel")   # or EtcUtils.groups[0]
 EtcUtils.supports?(:shadow)  # => true on Linux, false on macOS
 EtcUtils.capabilities        # => { os: :linux, users: { read: true, write: true }, ... }
 
+# Convenience methods
+EtcUtils.me              # => current user
+EtcUtils.can_lockfile?   # => true if file locking supported
+
 # Write operations (Linux only, requires root)
 EtcUtils.with_lock do
   EtcUtils.write_passwd(entries, backup: true)
@@ -95,10 +99,14 @@ EtcUtils.groups[0]
 ```ruby
 # Dry run - validate without writing
 result = EtcUtils.write_passwd(entries, dry_run: true)
-result.valid?        # => true/false
-result.errors        # => ["Duplicate UID 1000", ...]
-result.warnings      # => ["Shell does not exist: /bin/zsh", ...]
-result.preview       # => formatted preview of changes
+result.valid?          # => true/false
+result.errors          # => ["Duplicate UID 1000", ...]
+result.warnings        # => ["Shell does not exist: /bin/zsh", ...]
+result.warnings?       # => true if any warnings
+result.preview(limit: 5) # => formatted preview (first N lines)
+result.change_summary  # => { added: 1, modified: 2, removed: 0 }
+result.summary         # => human-readable summary string
+result.to_h            # => hash representation
 
 # Write with automatic backup
 EtcUtils.with_lock do
@@ -125,13 +133,14 @@ end
 # - EtcUtils::ValidationError
 # - EtcUtils::LockError
 # - EtcUtils::UnsupportedError
+# - EtcUtils::ConcurrentModificationError
 ```
 
 ---
 
 ## v1 Legacy API
 
-The v1 C extension API remains available for backward compatibility when the extension is compiled:
+The v1 C extension API remains available for backward compatibility. When the C extension loads successfully, `EtcUtils::User` becomes an alias for `EtcUtils::Passwd`:
 
 ```ruby
 # v1 class names (still work in v2)
