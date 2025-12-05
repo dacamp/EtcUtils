@@ -3,6 +3,11 @@
 require_relative "test_helper"
 
 class TestGShadow < Test::Unit::TestCase
+  def setup
+    super
+    skip_if_v1_extension("GShadow struct tests require v2 classes")
+  end
+
   def test_gshadow_struct_fields
     gshadow = EtcUtils::GShadow.new(
       name: "wheel",

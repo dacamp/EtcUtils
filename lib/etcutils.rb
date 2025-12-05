@@ -142,8 +142,26 @@ module EtcUtils
       Platform.reset!
       Backend::Registry.reset!
     end
+
+    # Returns the current user (v2 API - only if C extension not loaded)
+    #
+    # @return [User] the current user
+    def me
+      users.get(Process.uid)
+    end
+
+    # Check if file locking is available (v2 API - only if C extension not loaded)
+    #
+    # @return [Boolean] true if locking is supported
+    def can_lockfile?
+      Platform.supports?(:locking)
+    end
   end
 end
+
+# These methods are defined in the module above, but will be overridden
+# by the C extension if it loads successfully. This ensures backward
+# compatibility - v1 C extension's methods take precedence.
 
 # Load version first
 require_relative "etcutils/version"
@@ -154,11 +172,30 @@ require_relative "etcutils/errors"
 # Load platform detection
 require_relative "etcutils/platform"
 
-# Load value objects
-require_relative "etcutils/user"
-require_relative "etcutils/group"
-require_relative "etcutils/shadow"
-require_relative "etcutils/gshadow"
+# Try to load C extension first for v1 API compatibility
+# This provides: getpwent, setpwent, endpwent, sgetpwent, fgetpwent, putpwent,
+#                getgrent, setgrent, endgrent, sgetgrent, fgetgrent, putgrent,
+#                getspent, setspent, endspent, find_pwd, find_grp, find_spwd, find_sgrp,
+#                lckpwdf, ulckpwdf, next_uid, next_gid, Passwd, Group, Shadow, GShadow classes
+V1_EXTENSION_LOADED = begin
+  require_relative "etcutils/etcutils.so"
+  true
+rescue LoadError
+  false
+end
+
+# Load v2 value objects only if C extension didn't define them
+# (v2 uses Struct-based classes, v1 uses custom C classes)
+if V1_EXTENSION_LOADED
+  # Create alias so v2 API code can use User name
+  # (v1 extension defines EtcUtils::Passwd, v2 defines EtcUtils::User)
+  EtcUtils::User = EtcUtils::Passwd
+else
+  require_relative "etcutils/user"
+  require_relative "etcutils/group"
+  require_relative "etcutils/shadow"
+  require_relative "etcutils/gshadow"
+end
 
 # Load dry run result
 require_relative "etcutils/dry_run_result"

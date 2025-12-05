@@ -3,6 +3,11 @@
 require_relative "test_helper"
 
 class TestUser < Test::Unit::TestCase
+  def setup
+    super
+    skip_if_v1_extension("User struct tests require v2 classes")
+  end
+
   def test_user_struct_fields
     user = EtcUtils::User.new(
       name: "testuser",

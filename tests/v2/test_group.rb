@@ -3,6 +3,11 @@
 require_relative "test_helper"
 
 class TestGroup < Test::Unit::TestCase
+  def setup
+    super
+    skip_if_v1_extension("Group struct tests require v2 classes")
+  end
+
   def test_group_struct_fields
     group = EtcUtils::Group.new(
       name: "testgroup",

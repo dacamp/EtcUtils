@@ -10,6 +10,9 @@ MACOS = RUBY_PLATFORM =~ /darwin/
 LINUX = RUBY_PLATFORM =~ /linux/
 WINDOWS = RUBY_PLATFORM =~ /mswin|mingw|cygwin/
 
+# Check if C extension is loaded (v1 classes vs v2 Struct-based classes)
+V2_STRUCTS_AVAILABLE = !defined?(V1_EXTENSION_LOADED) || !V1_EXTENSION_LOADED
+
 class Test::Unit::TestCase
   def setup
     EtcUtils.reset!
@@ -33,5 +36,9 @@ class Test::Unit::TestCase
 
   def skip_unless_macos(reason = "Only available on macOS")
     omit(reason) unless MACOS
+  end
+
+  def skip_if_v1_extension(reason = "Test requires v2 Struct-based classes")
+    omit(reason) unless V2_STRUCTS_AVAILABLE
   end
 end

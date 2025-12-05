@@ -3,6 +3,11 @@
 require_relative "test_helper"
 
 class TestShadow < Test::Unit::TestCase
+  def setup
+    super
+    skip_if_v1_extension("Shadow struct tests require v2 classes")
+  end
+
   def test_shadow_struct_fields
     shadow = EtcUtils::Shadow.new(
       name: "testuser",

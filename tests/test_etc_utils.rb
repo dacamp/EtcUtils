@@ -9,7 +9,8 @@ class EtcUtilsTest < Test::Unit::TestCase
 
   def test_constants
     assert_equal(EtcUtils, EU)
-    assert_equal('1.0.0', EU::VERSION)
+    # Version can be 1.0.0 (v1 only) or 2.0.0 (v2 with v1 extension)
+    assert_match(/^[12]\.0\.0$/, EU::VERSION)
 
     # User DB Files - only test files that exist on this platform
     [:passwd, :group].each do |m|

@@ -10,6 +10,9 @@ end
 class TestIntegration < Test::Unit::TestCase
   def setup
     super
+    # Skip all v2 integration tests when v1 C extension is loaded
+    # (v2 collections use Struct-based classes with keyword init)
+    skip_if_v1_extension("Integration tests require v2 classes")
     # Re-register the backend after reset
     if MACOS
       EtcUtils::Backend::Registry.register(:darwin, EtcUtils::Backend::Darwin.new)
