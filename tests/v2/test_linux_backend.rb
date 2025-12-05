@@ -149,6 +149,7 @@ class TestLinuxBackendWriteOperations < Test::Unit::TestCase
   def setup
     super
     skip_unless_linux
+    skip_if_v1_extension("Write tests require v2 User class")
     omit("Write tests require root") unless Process.uid.zero?
     EtcUtils::Backend::Registry.register(:linux, EtcUtils::Backend::Linux.new)
   end
