@@ -3,7 +3,13 @@
 [![CI](https://github.com/dacamp/etcutils/actions/workflows/ci.yml/badge.svg)](https://github.com/dacamp/etcutils/actions/workflows/ci.yml)
 [![Gem Version](https://badge.fury.io/rb/etcutils.svg)](https://badge.fury.io/rb/etcutils)
 
-Ruby C extension for read/write access to Linux user databases (`/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/gshadow`).
+Cross-platform Ruby library for reading and writing system user and group databases.
+
+## Version 2.0
+
+EtcUtils v2 is a cross-platform rewrite with a Ruby-idiomatic API supporting Linux, macOS, and Windows.
+
+**Looking for v1?** The legacy C extension API is available on the [`v1-legacy`](https://github.com/dacamp/EtcUtils/tree/v1-legacy) branch. v1 remains supported for bug fixes but new features target v2.
 
 ## Installation
 
@@ -15,114 +21,129 @@ gem install etcutils
 
 ## Platform Support
 
-| Platform | Read | Write |
-|----------|------|-------|
-| Linux    | Full | Full  |
-| macOS/BSD| Full | Not recommended |
+| Platform | Users | Groups | Shadow | GShadow | Locking |
+|----------|-------|--------|--------|---------|---------|
+| Linux    | R/W   | R/W    | R/W    | R/W     | Yes     |
+| macOS    | Read  | Read   | No     | No      | No      |
+| Windows  | Read  | Read   | No     | No      | No      |
 
-**GShadow on older Debian/Ubuntu:** If GShadow operations fail, add `gshadow: files` to `/etc/nsswitch.conf`.
+**Note:** Shadow file access requires root or shadow group membership on Linux.
 
-## Quick Start
+## Quick Start (v2 API)
 
 ```ruby
 require 'etcutils'
 
-# Find users/groups by name or ID
-user = EtcUtils::Passwd.find('daemon')  # or EU::Passwd.find(1)
-group = EtcUtils::Group.find('daemon')
+# List users and groups
+EtcUtils.users.each { |user| puts user.name }
+EtcUtils.groups.each { |group| puts group.name }
 
-# Iterate through entries
-EtcUtils::Passwd.each { |u| puts u.name }
+# Find by name or ID
+user = EtcUtils.users.get("root")      # or EtcUtils.users[0]
+group = EtcUtils.groups.get("wheel")   # or EtcUtils.groups[0]
 
-# Create new entry (auto-assigns next available UID/GID)
-new_user = EtcUtils::Passwd.parse("newuser:x:::New User:/home/newuser:/bin/bash")
+# Check platform capabilities
+EtcUtils.supports?(:shadow)  # => true on Linux, false on macOS
+EtcUtils.capabilities        # => { os: :linux, users: { read: true, write: true }, ... }
+
+# Write operations (Linux only, requires root)
+EtcUtils.with_lock do
+  EtcUtils.write_passwd(entries, backup: true)
+end
 ```
 
-## Classes
+## Data Classes
 
-| Class | File | Attributes |
-|-------|------|------------|
-| `EtcUtils::Passwd` | `/etc/passwd` | name, passwd, uid, gid, gecos, dir, shell |
-| `EtcUtils::Group` | `/etc/group` | name, passwd, gid, members |
-| `EtcUtils::Shadow` | `/etc/shadow` | name, passwd, last_change, min_change, max_change, warn, inactive, expire, flag |
-| `EtcUtils::GShadow` | `/etc/gshadow` | name, passwd, admins, members |
+| Class | Source | Attributes |
+|-------|--------|------------|
+| `EtcUtils::User` | passwd/dscl | name, passwd, uid, gid, gecos, dir, shell |
+| `EtcUtils::Group` | group/dscl | name, passwd, gid, members |
+| `EtcUtils::Shadow` | /etc/shadow | name, passwd, last_change, min_days, max_days, warn_days, inactive_days, expire_date |
+| `EtcUtils::GShadow` | /etc/gshadow | name, passwd, admins, members |
 
-**Note:** Shadow classes require read permission on the shadow files (typically root only).
+All classes support `parse(entry_string)` and `to_entry` for round-trip serialization.
 
-## File Locking
-
-Use block form for automatic unlock (recommended):
+## File Locking (Linux only)
 
 ```ruby
-EtcUtils.lock do
+EtcUtils.with_lock(timeout: 15) do
   # Safe operations here
   # Automatically unlocks even on exception
 end
+
+EtcUtils.locked?  # => true/false
 ```
 
-Manual locking:
+## Collections API
 
 ```ruby
-EtcUtils.lock      # => true (locked)
-EtcUtils.locked?   # => true
-EtcUtils.unlock    # => true (unlocked)
+# UserCollection
+EtcUtils.users.each { |u| ... }      # iterate all users
+EtcUtils.users.get("name")           # find by name, returns nil if not found
+EtcUtils.users.get(uid)              # find by UID
+EtcUtils.users["name"]               # alias for get
+EtcUtils.users.fetch("name")         # raises NotFoundError if not found
+EtcUtils.users.exists?("name")       # check existence
+
+# GroupCollection - same interface
+EtcUtils.groups.get("wheel")
+EtcUtils.groups[0]
 ```
 
-## Reading Entries
+## Writing Entries (Linux only)
 
 ```ruby
-# Sequential iteration
-EtcUtils::Group.get        # First entry
-EtcUtils::Group.get        # Next entry
-EtcUtils.setgrent          # Rewind to beginning
+# Dry run - validate without writing
+result = EtcUtils.write_passwd(entries, dry_run: true)
+result.valid?        # => true/false
+result.errors        # => ["Duplicate UID 1000", ...]
+result.warnings      # => ["Shell does not exist: /bin/zsh", ...]
+result.preview       # => formatted preview of changes
 
-# Find by name or ID
-EtcUtils::Passwd.find('daemon')
-EtcUtils::Passwd.find(1)
+# Write with automatic backup
+EtcUtils.with_lock do
+  EtcUtils.write_passwd(entries, backup: true)
+  EtcUtils.write_group(groups, backup: true)
+  EtcUtils.write_shadow(shadows, backup: true)   # requires root
+  EtcUtils.write_gshadow(gshadows, backup: true) # requires root
+end
 ```
 
-## Creating Entries
-
-**`parse`** - Returns existing entry if found, otherwise creates new:
+## Error Handling
 
 ```ruby
-# Auto-assigns next available UID/GID when fields are blank
-EtcUtils::Passwd.parse("foobar:x:::Foobar User:/home/foobar:/bin/bash")
-#=> uid=1001, gid=1001 (auto-assigned)
-```
-
-**`new`** - Creates entry with explicit values:
-
-```ruby
-EtcUtils::GShadow.new("foobar", '!', nil, ['sudo', 'adm'])
-```
-
-## Writing Entries
-
-**Always backup first, write to temp file, then move into place.**
-
-```ruby
-# 1. Backup original
-File.open("#{SHADOW}-", 'w+', 0600) { |f| f.puts IO.readlines(SHADOW) }
-
-# 2. Write to temp file with lock
-EtcUtils.lock do
-  File.open("/etc/_shadow", File::RDWR|File::CREAT, 0600) do |tmp|
-    while (ent = EtcUtils::Shadow.get)
-      ent.fputs(tmp)
-    end
-  end
+begin
+  EtcUtils.users.fetch("nonexistent")
+rescue EtcUtils::NotFoundError => e
+  puts "User not found"
 end
 
-# 3. Move temp file into place (not shown - use FileUtils.mv)
+# Available exceptions:
+# - EtcUtils::Error (base class)
+# - EtcUtils::NotFoundError
+# - EtcUtils::PermissionError
+# - EtcUtils::ValidationError
+# - EtcUtils::LockError
+# - EtcUtils::UnsupportedError
 ```
 
-## UID/GID Management
+---
+
+## v1 Legacy API
+
+The v1 C extension API remains available for backward compatibility when the extension is compiled:
 
 ```ruby
-EtcUtils.next_uid = 1000   # Set starting point
-EtcUtils.next_uid          # => 1000
-EtcUtils.next_uid          # => 1001 (auto-increments to next available)
+# v1 class names (still work in v2)
+EtcUtils::Passwd.find('daemon')
+EtcUtils::Group.find('wheel')
+
+# v1 iteration
+EtcUtils::Passwd.each { |u| puts u.name }
+
+# v1 locking
+EtcUtils.lock { ... }
+EtcUtils.locked?
 ```
 
-**Tip:** Let `parse` manage UID/GID assignment to keep them in sync for new users.
+For full v1 documentation, see the [`v1-legacy`](https://github.com/dacamp/EtcUtils/tree/v1-legacy) branch.
